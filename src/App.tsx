@@ -7,7 +7,7 @@ import {
   useState,
 } from "react";
 import { Toaster, toast } from "sonner";
-import { Compass, Loader2, Route } from "lucide-react";
+import { Compass, Loader2, Play, Route, Share2, Square } from "lucide-react";
 
 import { Button } from "./components/ui/button";
 import {
@@ -32,6 +32,7 @@ import {
   saveView,
 } from "./lib/storage";
 import { flagEmoji, makeId } from "./lib/utils";
+import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
 import type { MapHandle, Spot, ViewMode } from "./types";
 
 const GlobeView = lazy(() => import("./components/GlobeView"));
@@ -47,18 +48,23 @@ function ViewFallback() {
 }
 
 export default function App() {
-  const [trip, setTrip] = useState<Spot[]>(() => loadTrip() ?? SEED_TRIP);
+  const [trip, setTrip] = useState<Spot[]>(
+    () => tripFromHash() ?? loadTrip() ?? SEED_TRIP,
+  );
   const [isSample, setIsSample] = useState<boolean>(() =>
-    loadTrip() === null ? true : loadIsSample(),
+    tripFromHash() ? false : loadTrip() === null ? true : loadIsSample(),
   );
   const [view, setView] = useState<ViewMode>(() => loadView());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const handleRef = useRef<MapHandle | null>(null);
+  const tourRef = useRef(false);
 
   useEffect(() => saveTrip(trip), [trip]);
   useEffect(() => saveIsSample(isSample), [isSample]);
   useEffect(() => saveView(view), [view]);
+  useEffect(() => clearHash(), []);
 
   const flyTo = useCallback((lat: number, lng: number, zoom?: number) => {
     handleRef.current?.flyTo(lat, lng, zoom ? { zoom } : undefined);
@@ -126,21 +132,41 @@ export default function App() {
     [addSpot],
   );
 
-  const handleRemove = useCallback((id: string) => {
-    setTrip((prev) => prev.filter((s) => s.id !== id));
-    setIsSample(false);
-    setSelectedId((cur) => (cur === id ? null : cur));
-    toast("Removed from trip");
-  }, []);
+  const handleRemove = useCallback(
+    (id: string) => {
+      const snapshot = trip;
+      const removed = trip.find((s) => s.id === id);
+      setTrip((prev) => prev.filter((s) => s.id !== id));
+      setIsSample(false);
+      setSelectedId((cur) => (cur === id ? null : cur));
+      toast(`Removed ${removed?.name ?? "stop"}`, {
+        action: { label: "Undo", onClick: () => setTrip(snapshot) },
+      });
+    },
+    [trip],
+  );
 
   const handleClear = useCallback(() => {
     if (trip.length === 0) return;
     if (!window.confirm("Clear all stops from your trip?")) return;
+    const snapshot = trip;
     setTrip([]);
     setIsSample(false);
     setSelectedId(null);
-    toast("Trip cleared — start a new adventure ✨");
-  }, [trip.length]);
+    toast("Trip cleared", {
+      action: { label: "Undo", onClick: () => setTrip(snapshot) },
+    });
+  }, [trip]);
+
+  const handleReorder = useCallback((next: Spot[]) => {
+    setTrip(next);
+    setIsSample(false);
+  }, []);
+
+  const handleUpdateSpot = useCallback((id: string, patch: Partial<Spot>) => {
+    setTrip((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+    setIsSample(false);
+  }, []);
 
   const handleSelect = useCallback(
     (spot: Spot) => {
@@ -150,6 +176,35 @@ export default function App() {
     },
     [flyTo],
   );
+
+  const handleShare = useCallback(async () => {
+    const url = buildShareUrl(trip);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Trip link copied — paste it anywhere to share");
+    } catch {
+      toast("Copy this link to share", { description: url });
+    }
+  }, [trip]);
+
+  const stopTour = useCallback(() => {
+    tourRef.current = false;
+    setPlaying(false);
+  }, []);
+
+  const playTour = useCallback(async () => {
+    if (trip.length < 2) return;
+    tourRef.current = true;
+    setPlaying(true);
+    for (const spot of trip) {
+      if (!tourRef.current) break;
+      setSelectedId(spot.id);
+      flyTo(spot.lat, spot.lng, 5);
+      await new Promise((r) => setTimeout(r, 1800));
+    }
+    tourRef.current = false;
+    setPlaying(false);
+  }, [trip, flyTo]);
 
   const viewProps = {
     trip,
@@ -190,7 +245,32 @@ export default function App() {
           />
           <ViewToggle value={view} onChange={setView} />
 
-          {/* Mobile trip drawer trigger */}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleShare}
+            disabled={trip.length === 0}
+            className="bg-background/90 shadow-sm backdrop-blur"
+          >
+            <Share2 className="size-4" />
+            <span className="hidden sm:inline">Share</span>
+          </Button>
+
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={playing ? stopTour : playTour}
+            disabled={trip.length < 2}
+            className="bg-background/90 shadow-sm backdrop-blur"
+          >
+            {playing ? (
+              <Square className="size-4" />
+            ) : (
+              <Play className="size-4" />
+            )}
+            <span className="hidden sm:inline">{playing ? "Stop" : "Play"}</span>
+          </Button>
+
           <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
             <SheetTrigger asChild>
               <Button
@@ -211,6 +291,8 @@ export default function App() {
                 isSample={isSample}
                 onSelect={handleSelect}
                 onRemove={handleRemove}
+                onReorder={handleReorder}
+                onUpdate={handleUpdateSpot}
                 onClear={handleClear}
               />
             </SheetContent>
@@ -226,6 +308,8 @@ export default function App() {
           isSample={isSample}
           onSelect={handleSelect}
           onRemove={handleRemove}
+          onReorder={handleReorder}
+          onUpdate={handleUpdateSpot}
           onClear={handleClear}
         />
       </aside>

@@ -113,6 +113,11 @@ export default function MapView({
               {spot.fact && (
                 <div className="max-w-[12rem] text-xs">{spot.fact}</div>
               )}
+              {spot.note && (
+                <div className="max-w-[12rem] text-xs italic text-neutral-600">
+                  {spot.note}
+                </div>
+              )}
             </div>
           </Popup>
         </Marker>

@@ -8,6 +8,7 @@ export interface Spot {
   emoji?: string;
   fact?: string;
   vibe?: string;
+  note?: string;
 }
 
 export type Trip = Spot[];
