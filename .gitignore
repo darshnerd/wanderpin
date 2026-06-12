@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Env / secrets
+.env
+.vscode
+
+# Node (web, later)
+node_modules/
+dist/
+
+# OS
+.DS_Store
+
+# Local scratch
+bugs/
+
+# SQLite (generated at runtime — never commit)
+*.db
+*.db-shm
+*.db-wal
+doseguard.db
+app/doseguard.db
+app/api/data/*
+packages/api/app/data/
