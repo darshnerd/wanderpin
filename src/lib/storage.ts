@@ -63,3 +63,39 @@ export function saveIsSample(isSample: boolean): void {
     // ignore
   }
 }
+
+export interface TripDoc {
+  id: string;
+  name: string;
+  trip: Spot[];
+  updatedAt: number;
+}
+
+const LIBRARY_KEY = "wanderpin.library";
+
+export function loadLibrary(): TripDoc[] {
+  try {
+    const raw = localStorage.getItem(LIBRARY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const docs = Array.isArray(parsed) ? parsed : parsed?.trips;
+    if (!Array.isArray(docs)) return [];
+    return docs.filter(
+      (d) =>
+        d &&
+        typeof d.id === "string" &&
+        typeof d.name === "string" &&
+        Array.isArray(d.trip),
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function saveLibrary(docs: TripDoc[]): void {
+  try {
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify({ v: 1, trips: docs }));
+  } catch {
+    return;
+  }
+}

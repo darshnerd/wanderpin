@@ -1,10 +1,21 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL ?? "";
 const SECRET = process.env.SUPABASE_SECRET_KEY ?? "";
+const REST = `${SUPABASE_URL}/rest/v1/trips`;
 const ALPHABET =
   "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+function authHeaders(
+  extra: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    apikey: SECRET,
+    Authorization: `Bearer ${SECRET}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
 
 function randomSlug(len: number): string {
   let s = "";
@@ -12,6 +23,15 @@ function randomSlug(len: number): string {
     s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
   }
   return s;
+}
+
+async function slugTaken(slug: string): Promise<boolean> {
+  const r = await fetch(`${REST}?slug=eq.${slug}&select=slug`, {
+    headers: authHeaders(),
+  });
+  if (!r.ok) return false;
+  const rows = (await r.json()) as unknown[];
+  return Array.isArray(rows) && rows.length > 0;
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -47,24 +67,22 @@ export default async function handler(
     return send(res, 400, { error: "empty trip" });
   }
 
-  const supabase = createClient(SUPABASE_URL, SECRET);
   let slug = "";
   for (let i = 0; i < 5; i++) {
     const candidate = randomSlug(6);
-    const { data } = await supabase
-      .from("trips")
-      .select("slug")
-      .eq("slug", candidate)
-      .maybeSingle();
-    if (!data) {
+    if (!(await slugTaken(candidate))) {
       slug = candidate;
       break;
     }
   }
   if (!slug) slug = randomSlug(8);
 
-  const { error } = await supabase.from("trips").insert({ slug, data: trip });
-  if (error) return send(res, 500, { error: "could not save trip" });
+  const r = await fetch(REST, {
+    method: "POST",
+    headers: authHeaders({ Prefer: "return=minimal" }),
+    body: JSON.stringify({ slug, data: trip }),
+  });
+  if (!r.ok) return send(res, 500, { error: "could not save trip" });
 
   return send(res, 200, { slug });
 }

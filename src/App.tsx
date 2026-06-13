@@ -21,19 +21,24 @@ import { SearchBar } from "./components/SearchBar";
 import { SurpriseButton } from "./components/SurpriseButton";
 import { TripPanel } from "./components/TripPanel";
 import { ViewToggle } from "./components/ViewToggle";
+import { SharedCta } from "./components/SharedCta";
+import { TripLibrary } from "./components/TripLibrary";
 import { SEED_TRIP } from "./data/destinations";
 import { reverseGeocode, type GeocodeResult } from "./lib/geocode";
 import {
   loadIsSample,
+  loadLibrary,
   loadTrip,
   loadView,
   saveIsSample,
+  saveLibrary,
   saveTrip,
   saveView,
+  type TripDoc,
 } from "./lib/storage";
 import { flagEmoji, makeId } from "./lib/utils";
 import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
-import { supabase, supabaseEnabled } from "./lib/supabase";
+import { fetchSharedTrip, supabaseEnabled } from "./lib/supabase";
 import type { MapHandle, Spot, ViewMode } from "./types";
 
 const GlobeView = lazy(() => import("./components/GlobeView"));
@@ -59,34 +64,41 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [sharedCtaOpen, setSharedCtaOpen] = useState(false);
+  const [library, setLibrary] = useState<TripDoc[]>(() => loadLibrary());
   const handleRef = useRef<MapHandle | null>(null);
   const tourRef = useRef(false);
+
+  useEffect(() => saveLibrary(library), [library]);
 
   useEffect(() => saveTrip(trip), [trip]);
   useEffect(() => saveIsSample(isSample), [isSample]);
   useEffect(() => saveView(view), [view]);
   useEffect(() => {
     clearHash();
-    if (!supabaseEnabled || !supabase) return;
+    if (!supabaseEnabled) return;
     const m = location.pathname.match(/^\/t\/([A-Za-z0-9]+)$/);
     if (!m) return;
     const slug = m[1];
     void (async () => {
-      const { data } = await supabase
-        .from("trips")
-        .select("data")
-        .eq("slug", slug)
-        .maybeSingle();
-      const shared = data?.data as Spot[] | undefined;
-      if (shared && Array.isArray(shared) && shared.length > 0) {
-        setTrip(shared.map((s) => ({ ...s, id: makeId() })));
-        setIsSample(false);
-        setSelectedId(null);
-        history.replaceState(null, "", "/");
-        toast.success("Loaded a shared trip");
-      } else {
+      const shared = await fetchSharedTrip(slug);
+      if (!shared || shared.length === 0) {
         toast.error("That trip link wasn't found");
+        return;
       }
+      const loaded = shared.map((s) => ({ ...s, id: makeId() }));
+      setTrip(loaded);
+      setIsSample(false);
+      setSelectedId(null);
+      history.replaceState(null, "", "/");
+      toast.success("Loaded a shared trip");
+      await new Promise((r) => setTimeout(r, 1000));
+      for (const s of loaded) {
+        flyTo(s.lat, s.lng, 5);
+        setSelectedId(s.id);
+        await new Promise((r) => setTimeout(r, 1800));
+      }
+      setSharedCtaOpen(true);
     })();
   }, []);
 
@@ -277,6 +289,32 @@ export default function App() {
     setPlaying(false);
   }, [trip, flyTo]);
 
+  const saveCurrentTrip = useCallback(() => {
+    const name = window.prompt("Name this trip", "My trip")?.trim();
+    if (!name) return;
+    setLibrary((prev) => [
+      { id: makeId(), name, trip, updatedAt: Date.now() },
+      ...prev,
+    ]);
+    toast.success(`Saved "${name}" to your trips`);
+  }, [trip]);
+
+  const openTrip = useCallback(
+    (id: string) => {
+      const doc = library.find((d) => d.id === id);
+      if (!doc) return;
+      setTrip(doc.trip.map((s) => ({ ...s, id: makeId() })));
+      setIsSample(false);
+      setSelectedId(null);
+      toast(`Opened "${doc.name}"`);
+    },
+    [library],
+  );
+
+  const deleteTrip = useCallback((id: string) => {
+    setLibrary((prev) => prev.filter((d) => d.id !== id));
+  }, []);
+
   const viewProps = {
     trip,
     selectedId,
@@ -315,6 +353,13 @@ export default function App() {
             onSave={handleSurpriseSave}
           />
           <ViewToggle value={view} onChange={setView} />
+
+          <TripLibrary
+            docs={library}
+            onSave={saveCurrentTrip}
+            onOpen={openTrip}
+            onDelete={deleteTrip}
+          />
 
           <Button
             type="button"
@@ -384,6 +429,18 @@ export default function App() {
           onClear={handleClear}
         />
       </aside>
+
+      <SharedCta
+        open={sharedCtaOpen}
+        onCreate={() => {
+          setTrip([]);
+          setIsSample(false);
+          setSelectedId(null);
+          setSharedCtaOpen(false);
+          toast("Blank canvas ready. Drop a pin or hit Surprise me.");
+        }}
+        onDismiss={() => setSharedCtaOpen(false)}
+      />
 
       <Toaster position="top-center" richColors closeButton />
     </div>
