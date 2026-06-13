@@ -55,7 +55,7 @@ export default async function handler(
     return send(res, 500, { error: "server not configured" });
 
   const raw = await readBody(req);
-  if (raw.length > 100000) return send(res, 413, { error: "trip too large" });
+  if (raw.length > 200000) return send(res, 413, { error: "trip too large" });
 
   let trip: unknown;
   try {
