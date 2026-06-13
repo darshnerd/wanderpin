@@ -7,6 +7,7 @@ import {
   GripVertical,
   Leaf,
   MapPinned,
+  Navigation,
   Pencil,
   Plane,
   Route,
@@ -14,6 +15,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   closestCenter,
   DndContext,
@@ -45,7 +47,14 @@ import {
   formatDuration,
   timezonesCrossed,
 } from "@/lib/stats";
-import { downloadFile, toGPX, toJSON } from "@/lib/share";
+import {
+  downloadFile,
+  googleMapsUrl,
+  MAPS_MAX_STOPS,
+  toGPX,
+  toJSON,
+} from "@/lib/share";
+import { optimizeOrder } from "@/lib/optimize";
 import type { Spot } from "@/types";
 
 interface TripPanelProps {
@@ -206,7 +215,42 @@ export function TripPanel({
             <Download className="size-4" />
             GPX
           </Button>
+          <Button
+            type="button"
+            variant="outline"
+            className="flex-1"
+            disabled={trip.length === 0}
+            onClick={() => {
+              if (trip.length > MAPS_MAX_STOPS) {
+                toast(`Maps shows the first ${MAPS_MAX_STOPS} stops`);
+              }
+              window.open(googleMapsUrl(trip), "_blank", "noopener,noreferrer");
+            }}
+          >
+            <Navigation className="size-4" />
+            Maps
+          </Button>
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-2 w-full"
+          disabled={trip.length < 3}
+          onClick={() => {
+            const before = totalDistance(trip);
+            const next = optimizeOrder(trip);
+            onReorder(next);
+            const saved = before - totalDistance(next);
+            toast(
+              saved > 1
+                ? `Optimized: saved ${formatKm(saved)}`
+                : "Already optimal",
+            );
+          }}
+        >
+          <Sparkles className="size-4" />
+          Optimize route
+        </Button>
         <Button
           type="button"
           variant="outline"

@@ -1,5 +1,5 @@
-// wrappers around OpenStreetMap's Nominatim (no key needed)
-const ENDPOINT = "https://nominatim.openstreetmap.org";
+
+const ENDPOINT = "/api/geocode";
 
 export interface GeocodeResult {
   name: string;
@@ -64,14 +64,12 @@ export async function searchPlaces(
 ): Promise<GeocodeResult[]> {
   const q = query.trim();
   if (!q) return [];
-  const url =
-    `${ENDPOINT}/search?format=jsonv2&addressdetails=1&limit=${limit}` +
-    `&q=${encodeURIComponent(q)}`;
+  const url = `${ENDPOINT}?limit=${limit}&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, {
     headers: { Accept: "application/json" },
     signal,
   });
-  if (!res.ok) throw new Error(`Nominatim search failed: ${res.status}`);
+  if (!res.ok) throw new Error(`Geocoding search failed: ${res.status}`);
   const data = (await res.json()) as NominatimPlace[];
   return data.map(toResult);
 }
@@ -81,9 +79,7 @@ export async function reverseGeocode(
   lng: number,
   signal?: AbortSignal,
 ): Promise<GeocodeResult | null> {
-  const url =
-    `${ENDPOINT}/reverse?format=jsonv2&addressdetails=1` +
-    `&lat=${lat}&lon=${lng}`;
+  const url = `${ENDPOINT}?lat=${lat}&lon=${lng}`;
   const res = await fetch(url, {
     headers: { Accept: "application/json" },
     signal,

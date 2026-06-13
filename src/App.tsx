@@ -33,6 +33,7 @@ import {
 } from "./lib/storage";
 import { flagEmoji, makeId } from "./lib/utils";
 import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
+import { supabase, supabaseEnabled } from "./lib/supabase";
 import type { MapHandle, Spot, ViewMode } from "./types";
 
 const GlobeView = lazy(() => import("./components/GlobeView"));
@@ -64,7 +65,30 @@ export default function App() {
   useEffect(() => saveTrip(trip), [trip]);
   useEffect(() => saveIsSample(isSample), [isSample]);
   useEffect(() => saveView(view), [view]);
-  useEffect(() => clearHash(), []);
+  useEffect(() => {
+    clearHash();
+    if (!supabaseEnabled || !supabase) return;
+    const m = location.pathname.match(/^\/t\/([A-Za-z0-9]+)$/);
+    if (!m) return;
+    const slug = m[1];
+    void (async () => {
+      const { data } = await supabase
+        .from("trips")
+        .select("data")
+        .eq("slug", slug)
+        .maybeSingle();
+      const shared = data?.data as Spot[] | undefined;
+      if (shared && Array.isArray(shared) && shared.length > 0) {
+        setTrip(shared.map((s) => ({ ...s, id: makeId() })));
+        setIsSample(false);
+        setSelectedId(null);
+        history.replaceState(null, "", "/");
+        toast.success("Loaded a shared trip");
+      } else {
+        toast.error("That trip link wasn't found");
+      }
+    })();
+  }, []);
 
   const flyTo = useCallback((lat: number, lng: number, zoom?: number) => {
     handleRef.current?.flyTo(lat, lng, zoom ? { zoom } : undefined);
@@ -80,30 +104,59 @@ export default function App() {
     [flyTo],
   );
 
-  const handleAddPin = useCallback(async (lat: number, lng: number) => {
-    const tid = toast.loading("Finding this place…");
+  const handleAddPin = useCallback(async (rawLat: number, rawLng: number) => {
+    const lat = rawLat;
+    const lng = ((rawLng + 540) % 360) - 180;
+    const id = makeId();
     const fallbackName = `Pin ${lat.toFixed(2)}, ${lng.toFixed(2)}`;
-    let spot: Spot;
+    setTrip((prev) => [
+      ...prev,
+      { id, name: "Locating…", lat, lng, emoji: "📍" },
+    ]);
+    setIsSample(false);
+    setSelectedId(id);
+    const tid = toast.loading("Finding this place…");
     try {
       const res = await reverseGeocode(lat, lng);
-      spot = {
-        id: makeId(),
-        name: res?.name ?? fallbackName,
-        lat,
-        lng,
-        country: res?.country,
-        countryCode: res?.countryCode,
-        emoji: "📍",
-      };
+      if (!res) {
+        setTrip((prev) => prev.filter((s) => s.id !== id));
+        setSelectedId((cur) => (cur === id ? null : cur));
+        toast.dismiss(tid);
+        toast("🌊 No place there — open water?", {
+          action: {
+            label: "Add anyway",
+            onClick: () => {
+              setTrip((prev) => [
+                ...prev,
+                { id: makeId(), name: fallbackName, lat, lng, emoji: "📍" },
+              ]);
+              setIsSample(false);
+            },
+          },
+        });
+        return;
+      }
+      setTrip((prev) =>
+        prev.map((s) =>
+          s.id === id
+            ? {
+                ...s,
+                name: res.name,
+                country: res.country,
+                countryCode: res.countryCode,
+              }
+            : s,
+        ),
+      );
+      toast.success(`Added ${res.name} ${flagEmoji(res.countryCode)}`, {
+        id: tid,
+      });
     } catch {
-      spot = { id: makeId(), name: fallbackName, lat, lng, emoji: "📍" };
+      setTrip((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, name: fallbackName } : s)),
+      );
+      toast.dismiss(tid);
     }
-    setTrip((prev) => [...prev, spot]);
-    setIsSample(false);
-    setSelectedId(spot.id);
-    toast.success(`Added ${spot.name} ${flagEmoji(spot.countryCode)}`, {
-      id: tid,
-    });
   }, []);
 
   const handleSearchSelect = useCallback(
@@ -178,10 +231,28 @@ export default function App() {
   );
 
   const handleShare = useCallback(async () => {
+    if (supabaseEnabled) {
+      const tid = toast.loading("Publishing…");
+      try {
+        const r = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ trip }),
+        });
+        if (!r.ok) throw new Error("publish failed");
+        const { slug } = await r.json();
+        const link = `${location.origin}/t/${slug}`;
+        await navigator.clipboard.writeText(link);
+        toast.success("Public link copied to clipboard", { id: tid });
+        return;
+      } catch {
+        toast.dismiss(tid);
+      }
+    }
     const url = buildShareUrl(trip);
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Trip link copied — paste it anywhere to share");
+      toast.success("Trip link copied to clipboard");
     } catch {
       toast("Copy this link to share", { description: url });
     }

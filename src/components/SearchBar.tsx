@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Loader2, MapPin, Search } from "lucide-react";
 
 import { Input } from "./ui/input";
@@ -15,32 +15,22 @@ export function SearchBar({ onSelect }: SearchBarProps) {
   const [loading, setLoading] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
-  useEffect(() => {
+  async function runSearch() {
     const term = query.trim();
-    if (term.length < 2) {
-      setResults([]);
-      setOpen(false);
-      setLoading(false);
-      return;
-    }
-
+    if (term.length < 2) return;
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
     setLoading(true);
-    const timer = setTimeout(async () => {
-      abortRef.current?.abort();
-      const ac = new AbortController();
-      abortRef.current = ac;
-      try {
-        const found = await searchPlaces(term, 5, ac.signal);
-        setResults(found);
-        setOpen(true);
-      } catch {
-      } finally {
-        if (!ac.signal.aborted) setLoading(false);
-      }
-    }, 450);
-
-    return () => clearTimeout(timer);
-  }, [query]);
+    try {
+      const found = await searchPlaces(term, 5, ac.signal);
+      setResults(found);
+      setOpen(true);
+    } catch {
+    } finally {
+      if (!ac.signal.aborted) setLoading(false);
+    }
+  }
 
   function choose(result: GeocodeResult) {
     onSelect(result);
@@ -51,19 +41,28 @@ export function SearchBar({ onSelect }: SearchBarProps) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (results[0]) choose(results[0]);
+    runSearch();
   }
 
   return (
     <form onSubmit={handleSubmit} className="relative w-full">
       <div className="relative">
-        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2" />
+        <button
+          type="submit"
+          aria-label="Search"
+          className="text-muted-foreground hover:text-foreground absolute top-1/2 left-2.5 size-4 -translate-y-1/2 cursor-pointer"
+        >
+          <Search className="size-4" />
+        </button>
         <Input
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(false);
+          }}
           onFocus={() => results.length > 0 && setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Search a city…"
+          placeholder="Search a city, then press Enter"
           aria-label="Search for a city"
           className="bg-background/90 h-9 pr-8 pl-8 shadow-sm backdrop-blur"
         />
@@ -92,6 +91,18 @@ export function SearchBar({ onSelect }: SearchBarProps) {
               </button>
             </li>
           ))}
+          <li className="text-muted-foreground border-t border-border px-2 py-1 text-[10px]">
+            Search ©{" "}
+            <a
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              OpenStreetMap
+            </a>{" "}
+            via Nominatim
+          </li>
         </ul>
       )}
     </form>

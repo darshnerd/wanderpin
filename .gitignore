@@ -18,6 +18,7 @@ dist/
 
 # Local scratch
 bugs/
+demo/
 
 # SQLite (generated at runtime — never commit)
 *.db

@@ -3,20 +3,30 @@ import type { Spot, Trip, ViewMode } from "@/types";
 const TRIP_KEY = "wanderpin.trip";
 const VIEW_KEY = "wanderpin.view";
 const SAMPLE_KEY = "wanderpin.sample";
+const SCHEMA_VERSION = 1;
+
+interface TripEnvelope {
+  v: number;
+  trip: Spot[];
+}
+
+function isValidSpot(s: unknown): s is Spot {
+  return (
+    !!s &&
+    typeof (s as Spot).lat === "number" &&
+    typeof (s as Spot).lng === "number" &&
+    typeof (s as Spot).name === "string"
+  );
+}
 
 export function loadTrip(): Trip | null {
   try {
     const raw = localStorage.getItem(TRIP_KEY);
     if (raw === null) return null;
-    const parsed = JSON.parse(raw) as Spot[];
-    if (!Array.isArray(parsed)) return null;
-    return parsed.filter(
-      (s) =>
-        s &&
-        typeof s.lat === "number" &&
-        typeof s.lng === "number" &&
-        typeof s.name === "string",
-    );
+    const parsed = JSON.parse(raw);
+    const arr = Array.isArray(parsed) ? parsed : parsed?.trip;
+    if (!Array.isArray(arr)) return null;
+    return arr.filter(isValidSpot);
   } catch {
     return null;
   }
@@ -24,7 +34,8 @@ export function loadTrip(): Trip | null {
 
 export function saveTrip(trip: Trip): void {
   try {
-    localStorage.setItem(TRIP_KEY, JSON.stringify(trip));
+    const envelope: TripEnvelope = { v: SCHEMA_VERSION, trip };
+    localStorage.setItem(TRIP_KEY, JSON.stringify(envelope));
   } catch {
   }
 }
@@ -49,5 +60,6 @@ export function saveIsSample(isSample: boolean): void {
   try {
     localStorage.setItem(SAMPLE_KEY, String(isSample));
   } catch {
+    // ignore
   }
 }

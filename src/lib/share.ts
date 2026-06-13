@@ -116,6 +116,26 @@ ${rtepts}
 </gpx>`;
 }
 
+export const MAPS_MAX_STOPS = 11;
+
+export function googleMapsUrl(trip: Trip): string {
+  const coord = (s: { lat: number; lng: number }) => `${s.lat},${s.lng}`;
+  if (trip.length === 0) return "https://www.google.com/maps";
+  if (trip.length === 1) {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+      coord(trip[0]),
+    )}`;
+  }
+  const params = new URLSearchParams({
+    api: "1",
+    origin: coord(trip[0]),
+    destination: coord(trip[trip.length - 1]),
+  });
+  const middle = trip.slice(1, -1).slice(0, 9);
+  if (middle.length > 0) params.set("waypoints", middle.map(coord).join("|"));
+  return `https://www.google.com/maps/dir/?${params.toString()}`;
+}
+
 export function downloadFile(
   filename: string,
   content: string,

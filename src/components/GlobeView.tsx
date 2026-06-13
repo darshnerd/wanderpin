@@ -19,6 +19,8 @@ export default function GlobeView({
 }: ViewProps) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  const draggedRef = useRef(false);
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
@@ -57,7 +59,20 @@ export default function GlobeView({
   }, [trip]);
 
   return (
-    <div ref={containerRef} className="h-full w-full bg-[#0b1120]">
+    <div
+      ref={containerRef}
+      className="relative h-full w-full bg-[#0b1120]"
+      onPointerDown={(e) => {
+        pointerDownRef.current = { x: e.clientX, y: e.clientY };
+        draggedRef.current = false;
+      }}
+      onPointerUp={(e) => {
+        const d = pointerDownRef.current;
+        if (d) {
+          draggedRef.current = Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6;
+        }
+      }}
+    >
       <Globe
         ref={globeRef}
         width={size.width}
@@ -110,10 +125,22 @@ export default function GlobeView({
         labelColor={() => "rgba(226,232,240,0.9)"}
         labelResolution={2}
         labelAltitude={0.01}
-        onGlobeClick={({ lat, lng }: { lat: number; lng: number }) =>
-          onAddPin(lat, lng)
-        }
+        onGlobeClick={({ lat, lng }: { lat: number; lng: number }) => {
+          if (draggedRef.current) return;
+          onAddPin(lat, lng);
+        }}
       />
+      <div className="absolute bottom-1 left-2 z-10 text-[10px] text-slate-400/80">
+        Places ©{" "}
+        <a
+          href="https://www.openstreetmap.org/copyright"
+          target="_blank"
+          rel="noreferrer"
+          className="underline"
+        >
+          OpenStreetMap
+        </a>
+      </div>
     </div>
   );
 }
