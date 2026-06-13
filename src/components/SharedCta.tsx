@@ -28,16 +28,16 @@ export function SharedCta({ open, onCreate, onDismiss }: SharedCtaProps) {
           </span>
           <div className="min-w-0">
             <h3 className="text-base font-semibold tracking-tight">
-              Like this trip? Make your own
+              Make this journey yours
             </h3>
             <p className="text-muted-foreground mt-1 text-sm leading-relaxed">
-              Start with a blank globe, drop pins anywhere, and share your own
-              route with a link in seconds.
+              Loved where this went? Start from a blank globe, add the places
+              you're dreaming of, and send your own journey to someone else.
             </p>
             <div className="mt-4 flex gap-2">
               <Button type="button" className="flex-1" onClick={onCreate}>
                 <Sparkles className="size-4" />
-                Create my own trip
+                Start my own journey
               </Button>
               <Button type="button" variant="outline" onClick={onDismiss}>
                 Keep exploring

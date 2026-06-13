@@ -6,7 +6,6 @@ import {
   Download,
   GripVertical,
   Leaf,
-  MapPinned,
   Navigation,
   Pencil,
   Plane,
@@ -38,6 +37,17 @@ import { CSS } from "@dnd-kit/utilities";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Input } from "./ui/input";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "./ui/accordion";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "./ui/hover-card";
 import { cn, flagEmoji, formatKm } from "@/lib/utils";
 import { totalDistance } from "@/lib/distance";
 import {
@@ -66,6 +76,7 @@ interface TripPanelProps {
   onReorder: (next: Spot[]) => void;
   onUpdate: (id: string, patch: Partial<Spot>) => void;
   onClear: () => void;
+  onInspire?: () => void;
 }
 
 export function TripPanel({
@@ -77,6 +88,7 @@ export function TripPanel({
   onReorder,
   onUpdate,
   onClear,
+  onInspire,
 }: TripPanelProps) {
   const distance = totalDistance(trip);
   const countries = new Set(
@@ -123,11 +135,20 @@ export function TripPanel({
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
         {trip.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
-            <MapPinned className="text-muted-foreground/60 mb-3 size-10" />
-            <p className="text-sm font-medium">Your map's a blank canvas</p>
-            <p className="text-muted-foreground mt-1 text-xs">
-              Click anywhere on the map or hit 🎲 Surprise me to start a trip.
+            <div className="mb-4 text-5xl">🌍</div>
+            <p className="text-base font-semibold tracking-tight">
+              Where are you dreaming of?
             </p>
+            <p className="text-muted-foreground mt-1.5 text-sm leading-relaxed">
+              Drop a pin anywhere on the globe — or let us surprise you with
+              somewhere worth the trip.
+            </p>
+            {onInspire && (
+              <Button type="button" className="mt-5" onClick={onInspire}>
+                <Sparkles className="size-4" />
+                Take me somewhere
+              </Button>
+            )}
           </div>
         ) : (
           <DndContext
@@ -157,111 +178,139 @@ export function TripPanel({
         )}
       </div>
 
-      <footer className="border-t border-border p-4">
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <Stat icon={<MapPinned className="size-3.5" />} label="Stops" value={String(trip.length)} />
-          <Stat icon={<Route className="size-3.5" />} label="Distance" value={formatKm(distance)} />
-          <Stat icon={<Compass className="size-3.5" />} label="Countries" value={String(countries)} />
-        </div>
-        {trip.length >= 2 && (
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-            <Stat
-              icon={<Plane className="size-3.5" />}
-              label="Flight"
-              value={formatDuration(flightHours(distance))}
-            />
-            <Stat
-              icon={<Clock className="size-3.5" />}
-              label="Zones"
-              value={String(timezonesCrossed(trip))}
-            />
-            <Stat
-              icon={<Leaf className="size-3.5" />}
-              label="CO₂"
-              value={formatCo2(co2Kg(distance))}
-            />
+      {trip.length > 0 && (
+        <footer className="border-t border-border p-4">
+          <div className="bg-primary/5 rounded-xl px-3 py-3 text-center">
+            <p className="text-sm font-semibold tracking-tight">
+              {trip.length} {trip.length === 1 ? "stop" : "stops"}
+              {countries > 1 ? ` · ${countries} countries` : ""}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs">
+              {trip.length === 1
+                ? "Every journey starts with a single pin."
+                : trip.length === 2
+                  ? "A line drawn across the world."
+                  : "An adventure taking shape — where to next?"}
+            </p>
           </div>
-        )}
-        <div className="mt-3 flex gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            disabled={trip.length === 0}
-            onClick={() =>
-              downloadFile(
-                "wanderpin-trip.json",
-                toJSON(trip),
-                "application/json",
-              )
-            }
-          >
-            <Download className="size-4" />
-            JSON
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            disabled={trip.length === 0}
-            onClick={() =>
-              downloadFile(
-                "wanderpin-trip.gpx",
-                toGPX(trip),
-                "application/gpx+xml",
-              )
-            }
-          >
-            <Download className="size-4" />
-            GPX
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="flex-1"
-            disabled={trip.length === 0}
-            onClick={() => {
-              if (trip.length > MAPS_MAX_STOPS) {
-                toast(`Maps shows the first ${MAPS_MAX_STOPS} stops`);
+
+          {trip.length >= 2 && (
+            <Accordion type="single" collapsible className="mt-1">
+              <AccordionItem value="details">
+                <AccordionTrigger>Trip details</AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid grid-cols-2 gap-2 text-center">
+                    <Stat
+                      icon={<Route className="size-3.5" />}
+                      label="Distance"
+                      value={formatKm(distance)}
+                    />
+                    <Stat
+                      icon={<Plane className="size-3.5" />}
+                      label="Flight"
+                      value={formatDuration(flightHours(distance))}
+                    />
+                    <Stat
+                      icon={<Clock className="size-3.5" />}
+                      label="Zones"
+                      value={String(timezonesCrossed(trip))}
+                    />
+                    <Stat
+                      icon={<Leaf className="size-3.5" />}
+                      label="CO₂"
+                      value={formatCo2(co2Kg(distance))}
+                    />
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          )}
+
+          <div className="mt-3 flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={trip.length === 0}
+              onClick={() =>
+                downloadFile(
+                  "wanderpin-trip.json",
+                  toJSON(trip),
+                  "application/json",
+                )
               }
-              window.open(googleMapsUrl(trip), "_blank", "noopener,noreferrer");
+            >
+              <Download className="size-4" />
+              JSON
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={trip.length === 0}
+              onClick={() =>
+                downloadFile(
+                  "wanderpin-trip.gpx",
+                  toGPX(trip),
+                  "application/gpx+xml",
+                )
+              }
+            >
+              <Download className="size-4" />
+              GPX
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={trip.length === 0}
+              onClick={() => {
+                if (trip.length > MAPS_MAX_STOPS) {
+                  toast(`Maps shows the first ${MAPS_MAX_STOPS} stops`);
+                }
+                window.open(
+                  googleMapsUrl(trip),
+                  "_blank",
+                  "noopener,noreferrer",
+                );
+              }}
+            >
+              <Navigation className="size-4" />
+              Maps
+            </Button>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-2 w-full"
+            disabled={trip.length < 3}
+            onClick={() => {
+              const before = totalDistance(trip);
+              const next = optimizeOrder(trip);
+              onReorder(next);
+              const saved = before - totalDistance(next);
+              toast(
+                saved > 1
+                  ? `Optimized: saved ${formatKm(saved)}`
+                  : "Already optimal",
+              );
             }}
           >
-            <Navigation className="size-4" />
-            Maps
+            <Sparkles className="size-4" />
+            Optimize route
           </Button>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-2 w-full"
-          disabled={trip.length < 3}
-          onClick={() => {
-            const before = totalDistance(trip);
-            const next = optimizeOrder(trip);
-            onReorder(next);
-            const saved = before - totalDistance(next);
-            toast(
-              saved > 1
-                ? `Optimized: saved ${formatKm(saved)}`
-                : "Already optimal",
-            );
-          }}
-        >
-          <Sparkles className="size-4" />
-          Optimize route
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-2 w-full"
-          disabled={trip.length === 0}
-          onClick={onClear}
-        >
-          <Trash2 className="size-4" />
-          Clear all
-        </Button>
-      </footer>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-2 w-full"
+            disabled={trip.length === 0}
+            onClick={onClear}
+          >
+            <Trash2 className="size-4" />
+            Clear all
+          </Button>
+        </footer>
+      )}
     </div>
   );
 }
@@ -310,6 +359,40 @@ function StopItem({
     });
     setEditing(false);
   }
+
+  const label = (
+    <>
+      <span className="text-lg leading-none">
+        {spot.emoji ?? flagEmoji(spot.countryCode)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-medium">{spot.name}</span>
+        {spot.vibe && (
+          <Badge
+            variant="secondary"
+            className="mt-0.5 px-1.5 py-0 text-[10px]"
+          >
+            {spot.vibe}
+          </Badge>
+        )}
+        {spot.note && (
+          <span className="text-muted-foreground mt-0.5 block truncate text-xs">
+            {spot.note}
+          </span>
+        )}
+      </span>
+    </>
+  );
+
+  const selectButton = (
+    <button
+      type="button"
+      onClick={() => onSelect(spot)}
+      className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
+    >
+      {label}
+    </button>
+  );
 
   return (
     <li ref={setNodeRef} style={style} className={cn(isDragging && "relative z-10")}>
@@ -368,34 +451,18 @@ function StopItem({
               aria-label="Note"
             />
           </div>
+        ) : spot.fact ? (
+          <HoverCard>
+            <HoverCardTrigger asChild>{selectButton}</HoverCardTrigger>
+            <HoverCardContent align="start" className="w-72">
+              <p className="text-muted-foreground text-[10px] font-medium uppercase tracking-wide">
+                Why go
+              </p>
+              <p className="mt-1 text-sm leading-relaxed">{spot.fact}</p>
+            </HoverCardContent>
+          </HoverCard>
         ) : (
-          <button
-            type="button"
-            onClick={() => onSelect(spot)}
-            className="flex min-w-0 flex-1 items-center gap-2 text-left cursor-pointer"
-          >
-            <span className="text-lg leading-none">
-              {spot.emoji ?? flagEmoji(spot.countryCode)}
-            </span>
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium">
-                {spot.name}
-              </span>
-              {spot.vibe && (
-                <Badge
-                  variant="secondary"
-                  className="mt-0.5 px-1.5 py-0 text-[10px]"
-                >
-                  {spot.vibe}
-                </Badge>
-              )}
-              {spot.note && (
-                <span className="text-muted-foreground mt-0.5 block truncate text-xs">
-                  {spot.note}
-                </span>
-              )}
-            </span>
-          </button>
+          selectButton
         )}
 
         {editing ? (

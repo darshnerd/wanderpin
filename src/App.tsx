@@ -7,9 +7,26 @@ import {
   useState,
 } from "react";
 import { Toaster, toast } from "sonner";
-import { Compass, Loader2, Play, Route, Share2, Square } from "lucide-react";
+import {
+  Compass,
+  Dices,
+  Loader2,
+  Play,
+  Route,
+  Share2,
+  Square,
+} from "lucide-react";
 
 import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 import {
   Sheet,
   SheetContent,
@@ -17,13 +34,21 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "./components/ui/sheet";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "./components/ui/tooltip";
 import { SearchBar } from "./components/SearchBar";
-import { SurpriseButton } from "./components/SurpriseButton";
+import { SurpriseCard } from "./components/SurpriseButton";
 import { TripPanel } from "./components/TripPanel";
 import { ViewToggle } from "./components/ViewToggle";
 import { SharedCta } from "./components/SharedCta";
+import { ReelCaption } from "./components/ReelCaption";
+import { PostcardIntro } from "./components/PostcardIntro";
 import { TripLibrary } from "./components/TripLibrary";
-import { SEED_TRIP } from "./data/destinations";
+import { SEED_TRIP, pickRandomDestination } from "./data/destinations";
 import { reverseGeocode, type GeocodeResult } from "./lib/geocode";
 import {
   loadIsSample,
@@ -65,9 +90,24 @@ export default function App() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [sharedCtaOpen, setSharedCtaOpen] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [draftName, setDraftName] = useState("My trip");
   const [library, setLibrary] = useState<TripDoc[]>(() => loadLibrary());
+  const [surprise, setSurprise] = useState<Spot | null>(null);
+  const [tourSpot, setTourSpot] = useState<{
+    spot: Spot;
+    i: number;
+    total: number;
+  } | null>(null);
+  const [postcard, setPostcard] = useState<{ count: number } | null>(null);
   const handleRef = useRef<MapHandle | null>(null);
   const tourRef = useRef(false);
+  const tripLenRef = useRef(trip.length);
+
+  useEffect(() => {
+    tripLenRef.current = trip.length;
+  }, [trip.length]);
 
   useEffect(() => saveLibrary(library), [library]);
 
@@ -91,14 +131,7 @@ export default function App() {
       setIsSample(false);
       setSelectedId(null);
       history.replaceState(null, "", "/");
-      toast.success("Loaded a shared trip");
-      await new Promise((r) => setTimeout(r, 1000));
-      for (const s of loaded) {
-        flyTo(s.lat, s.lng, 5);
-        setSelectedId(s.id);
-        await new Promise((r) => setTimeout(r, 1800));
-      }
-      setSharedCtaOpen(true);
+      setPostcard({ count: loaded.length });
     })();
   }, []);
 
@@ -120,6 +153,7 @@ export default function App() {
     const lat = rawLat;
     const lng = ((rawLng + 540) % 360) - 180;
     const id = makeId();
+    const first = tripLenRef.current === 0;
     const fallbackName = `Pin ${lat.toFixed(2)}, ${lng.toFixed(2)}`;
     setTrip((prev) => [
       ...prev,
@@ -160,9 +194,12 @@ export default function App() {
             : s,
         ),
       );
-      toast.success(`Added ${res.name} ${flagEmoji(res.countryCode)}`, {
-        id: tid,
-      });
+      toast.success(
+        first
+          ? `Your journey begins in ${res.name} ✨`
+          : `Added ${res.name} ${flagEmoji(res.countryCode)}`,
+        { id: tid },
+      );
     } catch {
       setTrip((prev) =>
         prev.map((s) => (s.id === id ? { ...s, name: fallbackName } : s)),
@@ -173,6 +210,7 @@ export default function App() {
 
   const handleSearchSelect = useCallback(
     (r: GeocodeResult) => {
+      const first = tripLenRef.current === 0;
       const spot: Spot = {
         id: makeId(),
         name: r.name,
@@ -183,16 +221,33 @@ export default function App() {
         emoji: "📍",
       };
       addSpot(spot, { fly: true });
-      toast.success(`Flew to ${spot.name} ${flagEmoji(spot.countryCode)} — added ⭐`);
+      toast.success(
+        first
+          ? `Your journey begins in ${spot.name} ✨`
+          : `Flew to ${spot.name} ${flagEmoji(spot.countryCode)} — added ⭐`,
+      );
     },
     [addSpot],
   );
 
+  const rollSurprise = useCallback(() => {
+    const next = pickRandomDestination(surprise ? [surprise.id] : []);
+    setSurprise(next);
+    setSheetOpen(false);
+    flyTo(next.lat, next.lng, 5);
+  }, [surprise, flyTo]);
+
   const handleSurpriseSave = useCallback(
     (d: Spot) => {
+      const first = tripLenRef.current === 0;
       const spot: Spot = { ...d, id: makeId() };
       addSpot(spot, { fly: true });
-      toast.success(`Saved ${spot.name} ${flagEmoji(spot.countryCode)} ⭐`);
+      setSurprise(null);
+      toast.success(
+        first
+          ? `Your journey begins in ${spot.name} ✨`
+          : `Saved ${spot.name} ${flagEmoji(spot.countryCode)} ⭐`,
+      );
     },
     [addSpot],
   );
@@ -213,11 +268,15 @@ export default function App() {
 
   const handleClear = useCallback(() => {
     if (trip.length === 0) return;
-    if (!window.confirm("Clear all stops from your trip?")) return;
+    setClearOpen(true);
+  }, [trip.length]);
+
+  const confirmClear = useCallback(() => {
     const snapshot = trip;
     setTrip([]);
     setIsSample(false);
     setSelectedId(null);
+    setClearOpen(false);
     toast("Trip cleared", {
       action: { label: "Undo", onClick: () => setTrip(snapshot) },
     });
@@ -273,31 +332,47 @@ export default function App() {
   const stopTour = useCallback(() => {
     tourRef.current = false;
     setPlaying(false);
+    setTourSpot(null);
   }, []);
 
   const playTour = useCallback(async () => {
     if (trip.length < 2) return;
     tourRef.current = true;
     setPlaying(true);
-    for (const spot of trip) {
+    for (let i = 0; i < trip.length; i++) {
       if (!tourRef.current) break;
+      const spot = trip[i];
       setSelectedId(spot.id);
+      setTourSpot({ spot, i: i + 1, total: trip.length });
       flyTo(spot.lat, spot.lng, 5);
       await new Promise((r) => setTimeout(r, 1800));
     }
     tourRef.current = false;
     setPlaying(false);
+    setTourSpot(null);
   }, [trip, flyTo]);
 
+  const playSharedTour = useCallback(async () => {
+    setPostcard(null);
+    await playTour();
+    setSharedCtaOpen(true);
+  }, [playTour]);
+
   const saveCurrentTrip = useCallback(() => {
-    const name = window.prompt("Name this trip", "My trip")?.trim();
+    setDraftName("My trip");
+    setSaveOpen(true);
+  }, []);
+
+  const confirmSave = useCallback(() => {
+    const name = draftName.trim();
     if (!name) return;
     setLibrary((prev) => [
       { id: makeId(), name, trip, updatedAt: Date.now() },
       ...prev,
     ]);
+    setSaveOpen(false);
     toast.success(`Saved "${name}" to your trips`);
-  }, [trip]);
+  }, [draftName, trip]);
 
   const openTrip = useCallback(
     (id: string) => {
@@ -336,87 +411,118 @@ export default function App() {
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 top-0 z-30 p-3">
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2">
-          <div className="bg-background/90 flex h-9 items-center gap-1.5 rounded-md px-2.5 shadow-sm backdrop-blur">
-            <Compass className="text-primary size-5" />
-            <span className="hidden font-semibold tracking-tight sm:inline">
-              Wanderpin
-            </span>
-          </div>
+        <TooltipProvider delayDuration={300}>
+          <div className="pointer-events-auto flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+            <div className="flex items-center gap-2">
+              <div className="bg-background/90 flex h-9 items-center gap-1.5 rounded-md px-2.5 shadow-sm backdrop-blur">
+                <Compass className="text-primary size-5" />
+                <span className="hidden font-semibold tracking-tight sm:inline">
+                  Wanderpin
+                </span>
+              </div>
 
-          <div className="relative min-w-[8rem] flex-1 sm:max-w-xs">
-            <SearchBar onSelect={handleSearchSelect} />
-          </div>
+              <div className="relative min-w-0 flex-1 sm:max-w-xs">
+                <SearchBar onSelect={handleSearchSelect} />
+              </div>
+            </div>
 
-          <SurpriseButton
-            onFly={(lat, lng) => flyTo(lat, lng, 5)}
-            onSave={handleSurpriseSave}
-          />
-          <ViewToggle value={view} onChange={setView} />
+            <div className="flex flex-wrap items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={rollSurprise}
+                    className="bg-background/90 shadow-sm backdrop-blur"
+                  >
+                    <Dices className="size-4" />
+                    <span className="hidden sm:inline">Take me somewhere</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Surprise me with a place</TooltipContent>
+              </Tooltip>
 
-          <TripLibrary
-            docs={library}
-            onSave={saveCurrentTrip}
-            onOpen={openTrip}
-            onDelete={deleteTrip}
-          />
+              <ViewToggle value={view} onChange={setView} />
 
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={handleShare}
-            disabled={trip.length === 0}
-            className="bg-background/90 shadow-sm backdrop-blur"
-          >
-            <Share2 className="size-4" />
-            <span className="hidden sm:inline">Share</span>
-          </Button>
-
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={playing ? stopTour : playTour}
-            disabled={trip.length < 2}
-            className="bg-background/90 shadow-sm backdrop-blur"
-          >
-            {playing ? (
-              <Square className="size-4" />
-            ) : (
-              <Play className="size-4" />
-            )}
-            <span className="hidden sm:inline">{playing ? "Stop" : "Play"}</span>
-          </Button>
-
-          <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-            <SheetTrigger asChild>
-              <Button
-                variant="secondary"
-                className="bg-background/90 shadow-sm backdrop-blur md:hidden"
-              >
-                <Route className="size-4" />
-                {trip.length}
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="bottom" className="h-[72vh] p-0">
-              <SheetHeader className="sr-only">
-                <SheetTitle>My Trip</SheetTitle>
-              </SheetHeader>
-              <TripPanel
-                trip={trip}
-                selectedId={selectedId}
-                isSample={isSample}
-                onSelect={handleSelect}
-                onRemove={handleRemove}
-                onReorder={handleReorder}
-                onUpdate={handleUpdateSpot}
-                onClear={handleClear}
+              <TripLibrary
+                docs={library}
+                onSave={saveCurrentTrip}
+                onOpen={openTrip}
+                onDelete={deleteTrip}
               />
-            </SheetContent>
-          </Sheet>
-        </div>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleShare}
+                    disabled={trip.length === 0}
+                    className="bg-background/90 shadow-sm backdrop-blur"
+                  >
+                    <Share2 className="size-4" />
+                    <span className="hidden sm:inline">Share</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Copy a link to this journey</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={playing ? stopTour : playTour}
+                    disabled={trip.length < 2}
+                    className="bg-background/90 shadow-sm backdrop-blur"
+                  >
+                    {playing ? (
+                      <Square className="size-4" />
+                    ) : (
+                      <Play className="size-4" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {playing ? "Stop" : "Play"}
+                    </span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {playing ? "Stop the reel" : "Play your journey"}
+                </TooltipContent>
+              </Tooltip>
+
+              <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="secondary"
+                    className="bg-background/90 shadow-sm backdrop-blur md:hidden"
+                  >
+                    <Route className="size-4" />
+                    {trip.length}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent side="bottom" className="h-[72vh] p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>My Trip</SheetTitle>
+                  </SheetHeader>
+                  <TripPanel
+                    trip={trip}
+                    selectedId={selectedId}
+                    isSample={isSample}
+                    onSelect={handleSelect}
+                    onRemove={handleRemove}
+                    onReorder={handleReorder}
+                    onUpdate={handleUpdateSpot}
+                    onClear={handleClear}
+                    onInspire={rollSurprise}
+                  />
+                </SheetContent>
+              </Sheet>
+            </div>
+          </div>
+        </TooltipProvider>
       </div>
 
-      {/* Desktop side panel */}
       <aside className="bg-background/95 absolute top-16 right-3 bottom-3 z-20 hidden w-80 flex-col overflow-hidden rounded-xl border border-border shadow-2xl backdrop-blur md:flex">
         <TripPanel
           trip={trip}
@@ -427,8 +533,74 @@ export default function App() {
           onReorder={handleReorder}
           onUpdate={handleUpdateSpot}
           onClear={handleClear}
+          onInspire={rollSurprise}
         />
       </aside>
+
+      <Dialog open={clearOpen} onOpenChange={setClearOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear this trip?</DialogTitle>
+            <DialogDescription>
+              This removes all {trip.length} stops from your current trip. You
+              can undo right after.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setClearOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmClear}>
+              Clear all
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save this trip</DialogTitle>
+            <DialogDescription>
+              Give it a name so you can find it later in My Trips.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={draftName}
+            onChange={(e) => setDraftName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") confirmSave();
+            }}
+            placeholder="Trip name"
+            autoFocus
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setSaveOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmSave}>Save trip</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <ReelCaption tour={tourSpot} />
+
+      <SurpriseCard
+        spot={surprise}
+        onSave={handleSurpriseSave}
+        onAgain={rollSurprise}
+        onDismiss={() => setSurprise(null)}
+      />
+
+      <PostcardIntro
+        open={!!postcard}
+        count={postcard?.count ?? 0}
+        onPlay={playSharedTour}
+        onSkip={() => {
+          setPostcard(null);
+          setSharedCtaOpen(true);
+        }}
+      />
 
       <SharedCta
         open={sharedCtaOpen}
@@ -437,7 +609,7 @@ export default function App() {
           setIsSample(false);
           setSelectedId(null);
           setSharedCtaOpen(false);
-          toast("Blank canvas ready. Drop a pin or hit Surprise me.");
+          toast("Blank canvas ready. Drop a pin or hit Take me somewhere.");
         }}
         onDismiss={() => setSharedCtaOpen(false)}
       />
