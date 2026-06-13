@@ -3,11 +3,19 @@ import type { Spot, Trip, ViewMode } from "@/types";
 const TRIP_KEY = "wanderpin.trip";
 const VIEW_KEY = "wanderpin.view";
 const SAMPLE_KEY = "wanderpin.sample";
+const LIBRARY_KEY = "wanderpin.library";
 const SCHEMA_VERSION = 1;
 
 interface TripEnvelope {
   v: number;
   trip: Spot[];
+}
+
+export interface TripDoc {
+  id: string;
+  name: string;
+  trip: Spot[];
+  updatedAt: number;
 }
 
 function isValidSpot(s: unknown): s is Spot {
@@ -19,6 +27,21 @@ function isValidSpot(s: unknown): s is Spot {
   );
 }
 
+export function cleanSpot(s: Spot): Spot {
+  return {
+    id: s.id,
+    name: s.name,
+    lat: s.lat,
+    lng: s.lng,
+    country: s.country,
+    countryCode: s.countryCode,
+    emoji: s.emoji,
+    fact: s.fact,
+    vibe: s.vibe,
+    note: s.note,
+  };
+}
+
 export function loadTrip(): Trip | null {
   try {
     const raw = localStorage.getItem(TRIP_KEY);
@@ -26,7 +49,7 @@ export function loadTrip(): Trip | null {
     const parsed = JSON.parse(raw);
     const arr = Array.isArray(parsed) ? parsed : parsed?.trip;
     if (!Array.isArray(arr)) return null;
-    return arr.filter(isValidSpot);
+    return arr.filter(isValidSpot).map(cleanSpot);
   } catch {
     return null;
   }
@@ -34,9 +57,13 @@ export function loadTrip(): Trip | null {
 
 export function saveTrip(trip: Trip): void {
   try {
-    const envelope: TripEnvelope = { v: SCHEMA_VERSION, trip };
+    const envelope: TripEnvelope = {
+      v: SCHEMA_VERSION,
+      trip: trip.map(cleanSpot),
+    };
     localStorage.setItem(TRIP_KEY, JSON.stringify(envelope));
   } catch {
+    return;
   }
 }
 
@@ -49,6 +76,7 @@ export function saveView(view: ViewMode): void {
   try {
     localStorage.setItem(VIEW_KEY, view);
   } catch {
+    return;
   }
 }
 
@@ -60,18 +88,9 @@ export function saveIsSample(isSample: boolean): void {
   try {
     localStorage.setItem(SAMPLE_KEY, String(isSample));
   } catch {
-    // ignore
+    return;
   }
 }
-
-export interface TripDoc {
-  id: string;
-  name: string;
-  trip: Spot[];
-  updatedAt: number;
-}
-
-const LIBRARY_KEY = "wanderpin.library";
 
 export function loadLibrary(): TripDoc[] {
   try {
@@ -80,13 +99,15 @@ export function loadLibrary(): TripDoc[] {
     const parsed = JSON.parse(raw);
     const docs = Array.isArray(parsed) ? parsed : parsed?.trips;
     if (!Array.isArray(docs)) return [];
-    return docs.filter(
-      (d) =>
-        d &&
-        typeof d.id === "string" &&
-        typeof d.name === "string" &&
-        Array.isArray(d.trip),
-    );
+    return docs
+      .filter(
+        (d) =>
+          d &&
+          typeof d.id === "string" &&
+          typeof d.name === "string" &&
+          Array.isArray(d.trip),
+      )
+      .map((d) => ({ ...d, trip: d.trip.filter(isValidSpot).map(cleanSpot) }));
   } catch {
     return [];
   }
@@ -94,7 +115,8 @@ export function loadLibrary(): TripDoc[] {
 
 export function saveLibrary(docs: TripDoc[]): void {
   try {
-    localStorage.setItem(LIBRARY_KEY, JSON.stringify({ v: 1, trips: docs }));
+    const clean = docs.map((d) => ({ ...d, trip: d.trip.map(cleanSpot) }));
+    localStorage.setItem(LIBRARY_KEY, JSON.stringify({ v: 1, trips: clean }));
   } catch {
     return;
   }

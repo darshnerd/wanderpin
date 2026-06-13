@@ -45,6 +45,8 @@ export default function GlobeView({
     };
   }, [handleRef]);
 
+  const points = useMemo(() => trip.map((s) => ({ ...s })), [trip]);
+
   const arcs = useMemo<Arc[]>(() => {
     const out: Arc[] = [];
     for (let i = 1; i < trip.length; i++) {
@@ -90,7 +92,7 @@ export default function GlobeView({
           controls.autoRotate = true;
           controls.autoRotateSpeed = 0.55;
         }}
-        pointsData={trip}
+        pointsData={points}
         pointLat="lat"
         pointLng="lng"
         pointColor={(d: object) =>
@@ -116,7 +118,7 @@ export default function GlobeView({
         arcDashGap={0.25}
         arcDashAnimateTime={2200}
         arcAltitudeAutoScale={0.4}
-        labelsData={trip}
+        labelsData={points}
         labelLat="lat"
         labelLng="lng"
         labelText="name"
