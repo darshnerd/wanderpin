@@ -20,6 +20,10 @@ dist/
 bugs/
 demo/
 
+# AI agent instructions
+CLAUDE.md
+AGENTS.md
+
 # SQLite (generated at runtime — never commit)
 *.db
 *.db-shm
