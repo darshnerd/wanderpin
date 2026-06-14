@@ -39,6 +39,8 @@ export function cleanSpot(s: Spot): Spot {
     fact: s.fact,
     vibe: s.vibe,
     note: s.note,
+    mode: s.mode,
+    status: s.status,
   };
 }
 

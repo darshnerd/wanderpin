@@ -14,6 +14,7 @@ import {
   Play,
   Route,
   Share2,
+  Sparkles,
   Square,
 } from "lucide-react";
 
@@ -46,6 +47,7 @@ import { TripPanel } from "./components/TripPanel";
 import { ViewToggle } from "./components/ViewToggle";
 import { SharedCta } from "./components/SharedCta";
 import { ReelCaption } from "./components/ReelCaption";
+import { JourneyReveal } from "./components/JourneyReveal";
 import { PostcardIntro } from "./components/PostcardIntro";
 import { TripLibrary } from "./components/TripLibrary";
 import { SEED_TRIP, pickRandomDestination } from "./data/destinations";
@@ -61,7 +63,13 @@ import {
   saveView,
   type TripDoc,
 } from "./lib/storage";
-import { flagEmoji, makeId } from "./lib/utils";
+import { flagEmoji, formatKm, makeId } from "./lib/utils";
+import { totalDistance } from "./lib/distance";
+import { formatDuration } from "./lib/stats";
+import { tripHours } from "./lib/transport";
+import { classify } from "./lib/tripScale";
+import { exportPostcard } from "./lib/postcard";
+import { recordCanvas } from "./lib/recorder";
 import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
 import { fetchSharedTrip, supabaseEnabled } from "./lib/supabase";
 import type { MapHandle, Spot, ViewMode } from "./types";
@@ -101,6 +109,7 @@ export default function App() {
     total: number;
   } | null>(null);
   const [postcard, setPostcard] = useState<{ count: number } | null>(null);
+  const [revealOpen, setRevealOpen] = useState(false);
   const handleRef = useRef<MapHandle | null>(null);
   const tourRef = useRef(false);
   const tripLenRef = useRef(trip.length);
@@ -277,6 +286,7 @@ export default function App() {
     setIsSample(false);
     setSelectedId(null);
     setClearOpen(false);
+    setRevealOpen(false);
     toast("Trip cleared", {
       action: { label: "Undo", onClick: () => setTrip(snapshot) },
     });
@@ -337,6 +347,7 @@ export default function App() {
 
   const playTour = useCallback(async () => {
     if (trip.length < 2) return;
+    setRevealOpen(false);
     tourRef.current = true;
     setPlaying(true);
     for (let i = 0; i < trip.length; i++) {
@@ -347,16 +358,100 @@ export default function App() {
       flyTo(spot.lat, spot.lng, 5);
       await new Promise((r) => setTimeout(r, 1800));
     }
+    const completed = tourRef.current;
     tourRef.current = false;
     setPlaying(false);
     setTourSpot(null);
-  }, [trip, flyTo]);
+    if (completed && !isSample && trip.length >= 2) {
+      handleRef.current?.fitToTrip(trip);
+      setRevealOpen(true);
+    }
+  }, [trip, flyTo, isSample]);
 
   const playSharedTour = useCallback(async () => {
     setPostcard(null);
     await playTour();
-    setSharedCtaOpen(true);
   }, [playTour]);
+
+  const seeJourney = useCallback(() => {
+    if (trip.length < 2) return;
+    handleRef.current?.fitToTrip(trip);
+    setRevealOpen(true);
+  }, [trip]);
+
+  const replayJourney = useCallback(() => {
+    setRevealOpen(false);
+    void playTour();
+  }, [playTour]);
+
+  const sharePostcard = useCallback(() => {
+    const canvas = handleRef.current?.snapshot?.();
+    if (canvas) {
+      const info = classify(trip);
+      const first = trip[0];
+      const last = trip[trip.length - 1];
+      const subtitle =
+        first && last && first.id !== last.id
+          ? `${first.name} to ${last.name}`
+          : (first?.name ?? "");
+      const countryCodes = new Set(
+        trip.map((s) => s.countryCode).filter(Boolean),
+      );
+      const single = countryCodes.size <= 1;
+      const stats = [
+        { label: "Distance", value: formatKm(totalDistance(trip)) },
+        { label: "Stops", value: String(trip.length) },
+        single
+          ? {
+              label: "Cities",
+              value: String(new Set(trip.map((s) => s.name)).size),
+            }
+          : { label: "Countries", value: String(countryCodes.size) },
+        { label: "Time", value: formatDuration(tripHours(trip)) },
+      ];
+      const dateStamp = new Date().toLocaleDateString(undefined, {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+      const ok = exportPostcard(canvas, {
+        title: info.copy,
+        dateStamp,
+        subtitle,
+        stats,
+      });
+      if (ok) {
+        toast.success("Postcard saved to your downloads");
+        return;
+      }
+    }
+    void handleShare();
+  }, [trip, handleShare]);
+
+  const recordJourney = useCallback(async () => {
+    if (view !== "globe") {
+      toast("Video capture works in the globe view");
+      return;
+    }
+    const canvas = handleRef.current?.snapshot?.();
+    if (!canvas) {
+      toast.error("The globe isn't ready yet");
+      return;
+    }
+    setRevealOpen(false);
+    const tid = toast.loading("Recording your journey...");
+    try {
+      const ok = await recordCanvas(canvas, async () => {
+        await playTour();
+      });
+      toast.dismiss(tid);
+      if (ok) toast.success("Journey video saved to your downloads");
+      else toast.error("Video capture isn't supported in this browser");
+    } catch {
+      toast.dismiss(tid);
+      toast.error("Couldn't record the journey");
+    }
+  }, [view, playTour]);
 
   const saveCurrentTrip = useCallback(() => {
     setDraftName("My trip");
@@ -381,6 +476,7 @@ export default function App() {
       setTrip(doc.trip.map((s) => ({ ...s, id: makeId() })));
       setIsSample(false);
       setSelectedId(null);
+      setRevealOpen(false);
       toast(`Opened "${doc.name}"`);
     },
     [library],
@@ -403,7 +499,7 @@ export default function App() {
       <div className="absolute inset-0">
         <Suspense fallback={<ViewFallback />}>
           {view === "globe" ? (
-            <GlobeView {...viewProps} />
+            <GlobeView {...viewProps} revealing={revealOpen} />
           ) : (
             <MapView {...viewProps} />
           )}
@@ -489,6 +585,23 @@ export default function App() {
                 <TooltipContent>
                   {playing ? "Stop the reel" : "Play your journey"}
                 </TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={seeJourney}
+                    aria-label="See your journey"
+                    disabled={trip.length < 2}
+                    className="bg-background/90 shadow-sm backdrop-blur"
+                  >
+                    <Sparkles className="size-4" />
+                    <span className="hidden sm:inline">Journey</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>See your journey reveal</TooltipContent>
               </Tooltip>
 
               <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
@@ -585,6 +698,18 @@ export default function App() {
 
       <ReelCaption tour={tourSpot} />
 
+      {revealOpen && (
+        <JourneyReveal
+          trip={trip}
+          canShareImage={view === "globe"}
+          onClose={() => setRevealOpen(false)}
+          onReplay={replayJourney}
+          onSave={() => void handleShare()}
+          onShare={sharePostcard}
+          onVideo={recordJourney}
+        />
+      )}
+
       <SurpriseCard
         spot={surprise}
         onSave={handleSurpriseSave}
@@ -609,6 +734,7 @@ export default function App() {
           setIsSample(false);
           setSelectedId(null);
           setSharedCtaOpen(false);
+          setRevealOpen(false);
           toast("Blank canvas ready. Drop a pin or hit Take me somewhere.");
         }}
         onDismiss={() => setSharedCtaOpen(false)}

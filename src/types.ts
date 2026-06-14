@@ -1,3 +1,7 @@
+export type TransportMode = "walk" | "car" | "train" | "flight" | "boat";
+
+export type StopStatus = "someday" | "booked" | "visited";
+
 export interface Spot {
   id: string;
   name: string;
@@ -9,6 +13,8 @@ export interface Spot {
   fact?: string;
   vibe?: string;
   note?: string;
+  mode?: TransportMode;
+  status?: StopStatus;
 }
 
 export type Trip = Spot[];
@@ -17,6 +23,8 @@ export type ViewMode = "globe" | "map";
 
 export interface MapHandle {
   flyTo: (lat: number, lng: number, opts?: { zoom?: number }) => void;
+  fitToTrip: (trip: Trip, opts?: { altitude?: number; ms?: number }) => void;
+  snapshot?: () => HTMLCanvasElement | null;
 }
 
 export interface ViewProps {

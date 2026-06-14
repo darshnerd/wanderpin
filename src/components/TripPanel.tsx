@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Check,
   Clock,
@@ -50,13 +50,10 @@ import {
 } from "./ui/hover-card";
 import { cn, flagEmoji, formatKm } from "@/lib/utils";
 import { totalDistance } from "@/lib/distance";
-import {
-  co2Kg,
-  flightHours,
-  formatCo2,
-  formatDuration,
-  timezonesCrossed,
-} from "@/lib/stats";
+import { co2Kg, formatCo2, formatDuration, timezonesCrossed } from "@/lib/stats";
+import { MODE_CYCLE, MODE_META, legKm, legMode, tripHours } from "@/lib/transport";
+import { isDaylight, localSolarTime } from "@/lib/sun";
+import { fetchWeatherNow, type WeatherNow } from "@/lib/weather";
 import {
   downloadFile,
   googleMapsUrl,
@@ -65,7 +62,28 @@ import {
   toJSON,
 } from "@/lib/share";
 import { optimizeOrder } from "@/lib/optimize";
-import type { Spot } from "@/types";
+import type { Spot, StopStatus } from "@/types";
+
+const STATUS_CYCLE: StopStatus[] = ["someday", "booked", "visited"];
+const STATUS_META: Record<StopStatus, { label: string; color: string }> = {
+  someday: { label: "Someday", color: "#f59e0b" },
+  booked: { label: "Booked", color: "#38bdf8" },
+  visited: { label: "Visited", color: "#fcd34d" },
+};
+
+function useWeather(lat: number, lng: number): WeatherNow | null {
+  const [w, setW] = useState<WeatherNow | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void fetchWeatherNow(lat, lng).then((r) => {
+      if (alive) setW(r);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [lat, lng]);
+  return w;
+}
 
 interface TripPanelProps {
   trip: Spot[];
@@ -94,6 +112,7 @@ export function TripPanel({
   const countries = new Set(
     trip.map((s) => s.countryCode ?? s.country ?? s.name),
   ).size;
+  const visited = trip.filter((s) => s.status === "visited").length;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -110,6 +129,12 @@ export function TripPanel({
     const to = trip.findIndex((s) => s.id === over.id);
     if (from === -1 || to === -1) return;
     onReorder(arrayMove(trip, from, to));
+  }
+
+  function cycleMode(i: number) {
+    const cur = legMode(trip, i);
+    const next = MODE_CYCLE[(MODE_CYCLE.indexOf(cur) + 1) % MODE_CYCLE.length];
+    onUpdate(trip[i].id, { mode: next });
   }
 
   return (
@@ -162,15 +187,19 @@ export function TripPanel({
             >
               <ol className="space-y-1 py-1">
                 {trip.map((spot, i) => (
-                  <StopItem
-                    key={spot.id}
-                    spot={spot}
-                    index={i}
-                    selected={selectedId === spot.id}
-                    onSelect={onSelect}
-                    onRemove={onRemove}
-                    onUpdate={onUpdate}
-                  />
+                  <Fragment key={spot.id}>
+                    {i > 0 && (
+                      <LegConnector trip={trip} i={i} onCycle={cycleMode} />
+                    )}
+                    <StopItem
+                      spot={spot}
+                      index={i}
+                      selected={selectedId === spot.id}
+                      onSelect={onSelect}
+                      onRemove={onRemove}
+                      onUpdate={onUpdate}
+                    />
+                  </Fragment>
                 ))}
               </ol>
             </SortableContext>
@@ -184,6 +213,7 @@ export function TripPanel({
             <p className="text-sm font-semibold tracking-tight">
               {trip.length} {trip.length === 1 ? "stop" : "stops"}
               {countries > 1 ? ` · ${countries} countries` : ""}
+              {visited > 0 ? ` · ${visited} visited` : ""}
             </p>
             <p className="text-muted-foreground mt-0.5 text-xs">
               {trip.length === 1
@@ -207,8 +237,8 @@ export function TripPanel({
                     />
                     <Stat
                       icon={<Plane className="size-3.5" />}
-                      label="Flight"
-                      value={formatDuration(flightHours(distance))}
+                      label="Time"
+                      value={formatDuration(tripHours(trip))}
                     />
                     <Stat
                       icon={<Clock className="size-3.5" />}
@@ -315,6 +345,34 @@ export function TripPanel({
   );
 }
 
+function LegConnector({
+  trip,
+  i,
+  onCycle,
+}: {
+  trip: Spot[];
+  i: number;
+  onCycle: (i: number) => void;
+}) {
+  const meta = MODE_META[legMode(trip, i)];
+  const km = legKm(trip, i);
+  return (
+    <li className="flex items-center gap-2 py-0.5 pl-9 pr-2">
+      <button
+        type="button"
+        onClick={() => onCycle(i)}
+        aria-label={`Transport to ${trip[i].name}: ${meta.label}. Tap to change.`}
+        title="Tap to change transport"
+        className="flex cursor-pointer items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-muted"
+      >
+        <span className="leading-none">{meta.icon}</span>
+        <span>{meta.label}</span>
+      </button>
+      <span className="text-muted-foreground text-[11px]">{formatKm(km)}</span>
+    </li>
+  );
+}
+
 interface StopItemProps {
   spot: Spot;
   index: number;
@@ -338,6 +396,10 @@ function StopItem({
   const [name, setName] = useState(spot.name);
   const [emoji, setEmoji] = useState(spot.emoji ?? "");
   const [note, setNote] = useState(spot.note ?? "");
+  const weather = useWeather(spot.lat, spot.lng);
+  const day = isDaylight(spot.lat, spot.lng);
+  const status: StopStatus = spot.status ?? "someday";
+  const statusMeta = STATUS_META[status];
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -360,6 +422,11 @@ function StopItem({
     setEditing(false);
   }
 
+  function cycleStatus() {
+    const next = STATUS_CYCLE[(STATUS_CYCLE.indexOf(status) + 1) % STATUS_CYCLE.length];
+    onUpdate(spot.id, { status: next });
+  }
+
   const label = (
     <>
       <span className="text-lg leading-none">
@@ -380,6 +447,15 @@ function StopItem({
             {spot.note}
           </span>
         )}
+        <span className="text-muted-foreground/80 mt-0.5 flex items-center gap-1 text-[11px]">
+          {!day && !weather && <span>🌙</span>}
+          <span className="tabular-nums">{localSolarTime(spot.lng)}</span>
+          {weather && (
+            <span>
+              · {!day && weather.code <= 1 ? "🌙" : weather.glyph} {weather.tempC}°
+            </span>
+          )}
+        </span>
       </span>
     </>
   );
@@ -412,7 +488,13 @@ function StopItem({
           <GripVertical className="size-4" />
         </button>
 
-        <span className="bg-primary/10 text-primary flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
+        <span
+          className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+          style={{
+            backgroundColor: `${statusMeta.color}22`,
+            color: statusMeta.color,
+          }}
+        >
           {index + 1}
         </span>
 
@@ -463,6 +545,23 @@ function StopItem({
           </HoverCard>
         ) : (
           selectButton
+        )}
+
+        {!editing && (
+          <button
+            type="button"
+            onClick={cycleStatus}
+            aria-label={`Status: ${statusMeta.label}. Tap to change.`}
+            title="Someday / Booked / Visited"
+            className="flex shrink-0 cursor-pointer items-center gap-1 rounded-full border border-border px-1.5 py-0.5 text-[10px] font-medium"
+            style={{ color: statusMeta.color }}
+          >
+            <span
+              className="size-1.5 rounded-full"
+              style={{ backgroundColor: statusMeta.color }}
+            />
+            {statusMeta.label}
+          </button>
         )}
 
         {editing ? (
