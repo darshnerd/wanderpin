@@ -10,15 +10,17 @@ export async function recordCanvas(
   canvas: HTMLCanvasElement,
   run: () => Promise<void>,
   opts?: { fps?: number; filename?: string },
-): Promise<boolean> {
+): Promise<string | false> {
   if (!canRecord(canvas)) return false;
   const types = [
+    "video/mp4",
     "video/webm;codecs=vp9",
     "video/webm;codecs=vp8",
     "video/webm",
   ];
   const mimeType = types.find((t) => MediaRecorder.isTypeSupported(t));
   if (!mimeType) return false;
+  const ext = mimeType.startsWith("video/mp4") ? "mp4" : "webm";
 
   const stream = canvas.captureStream(opts?.fps ?? 30);
   const chunks: BlobPart[] = [];
@@ -46,10 +48,10 @@ export async function recordCanvas(
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = opts?.filename ?? "wanderpin-journey.webm";
+  a.download = opts?.filename ?? `wanderpin-journey.${ext}`;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 5000);
-  return true;
+  return ext;
 }

@@ -7,7 +7,6 @@ import {
   RotateCcw,
   Route,
   Share2,
-  Sparkles,
   Video,
   X,
 } from "lucide-react";
@@ -18,7 +17,7 @@ import { totalDistance } from "@/lib/distance";
 import { formatDuration } from "@/lib/stats";
 import { tripHours } from "@/lib/transport";
 import { classify } from "@/lib/tripScale";
-import { isDaylight, localSolarTime } from "@/lib/sun";
+import { isDaylight, localTimeAt } from "@/lib/sun";
 import { cn, formatKm } from "@/lib/utils";
 import type { Spot } from "@/types";
 
@@ -31,6 +30,10 @@ interface JourneyRevealProps {
   onShare: () => void;
   onVideo?: () => void;
 }
+
+const prefersReducedMotion = () =>
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function dateStamp(): string {
   const d = new Date();
@@ -52,8 +55,9 @@ export function JourneyReveal({
   onShare,
   onVideo,
 }: JourneyRevealProps) {
-  const [ready, setReady] = useState(false);
-  const [step, setStep] = useState(0);
+  const reduce = prefersReducedMotion();
+  const [ready, setReady] = useState(reduce);
+  const [step, setStep] = useState(reduce ? 99 : 0);
 
   const info = classify(trip);
   const countries = new Set(trip.map((s) => s.countryCode).filter(Boolean));
@@ -100,9 +104,10 @@ export function JourneyReveal({
   ];
 
   useEffect(() => {
+    if (reduce) return;
     const t = setTimeout(() => setReady(true), 320);
     return () => clearTimeout(t);
-  }, []);
+  }, [reduce]);
 
   useEffect(() => {
     if (!ready || step >= stats.length) return;
@@ -117,13 +122,13 @@ export function JourneyReveal({
       ? `${first.name} → ${last.name}`
       : (first?.name ?? "");
   const arrival = last
-    ? `${isDaylight(last.lat, last.lng) ? "☀️" : "🌙"} It's ${localSolarTime(last.lng)} in ${last.name} right now`
+    ? `${isDaylight(last.lat, last.lng) ? "☀️" : "🌙"} It's ${localTimeAt(last.lat, last.lng)} in ${last.name} right now`
     : "";
 
   return (
     <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center md:pr-[21rem]">
       <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
-      <div className="animate-in fade-in zoom-in-95 slide-in-from-bottom-4 pointer-events-auto relative w-[min(94vw,30rem)] rounded-2xl border border-white/10 bg-slate-950/80 p-5 text-center text-white shadow-2xl backdrop-blur-md duration-500 sm:p-6">
+      <div className="animate-in fade-in zoom-in-95 slide-in-from-bottom-4 motion-reduce:animate-none pointer-events-auto relative w-[min(94vw,30rem)] rounded-2xl border border-white/10 bg-slate-950/80 p-5 text-center text-white shadow-2xl backdrop-blur-md duration-500 sm:p-6">
         <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-sky-400 via-indigo-400 to-violet-400" />
         <button
           type="button"
@@ -160,23 +165,21 @@ export function JourneyReveal({
 
         <div className="mt-5 flex flex-col gap-2">
           <Button type="button" size="lg" onClick={onSave}>
-            <Sparkles className="size-4" />
-            Save this journey
+            <Share2 className="size-4" />
+            Share journey
           </Button>
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="secondary"
-              className="flex-1"
-              onClick={onShare}
-            >
-              {canShareImage ? (
+            {canShareImage && (
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1"
+                onClick={onShare}
+              >
                 <ImageIcon className="size-4" />
-              ) : (
-                <Share2 className="size-4" />
-              )}
-              {canShareImage ? "Postcard" : "Share link"}
-            </Button>
+                Postcard
+              </Button>
+            )}
             {canShareImage && onVideo && (
               <Button
                 type="button"
@@ -222,6 +225,7 @@ function StatCounter({
     <div
       className={cn(
         "rounded-xl bg-white/5 px-2 py-2.5 transition-all duration-500",
+        "motion-reduce:!translate-y-0 motion-reduce:!opacity-100 motion-reduce:transition-none",
         run ? "translate-y-0 opacity-100" : "translate-y-1.5 opacity-0",
       )}
     >

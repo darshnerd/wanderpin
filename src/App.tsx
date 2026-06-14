@@ -51,7 +51,7 @@ import { JourneyReveal } from "./components/JourneyReveal";
 import { PostcardIntro } from "./components/PostcardIntro";
 import { TripLibrary } from "./components/TripLibrary";
 import { SEED_TRIP, pickRandomDestination } from "./data/destinations";
-import { reverseGeocode, type GeocodeResult } from "./lib/geocode";
+import { reverseGeocode } from "./lib/geocode";
 import {
   loadIsSample,
   loadLibrary,
@@ -60,7 +60,6 @@ import {
   saveIsSample,
   saveLibrary,
   saveTrip,
-  saveView,
   type TripDoc,
 } from "./lib/storage";
 import { flagEmoji, formatKm, makeId } from "./lib/utils";
@@ -72,10 +71,14 @@ import { exportPostcard } from "./lib/postcard";
 import { recordCanvas } from "./lib/recorder";
 import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
 import { fetchSharedTrip, supabaseEnabled } from "./lib/supabase";
-import type { MapHandle, Spot, ViewMode } from "./types";
+import { loadPlaces, pickRandomPlace, warmPlaces } from "./lib/places";
+import { loadCountries } from "./lib/countries";
+import { useAutoLod } from "./hooks/useAutoLod";
+import type { MapHandle, Spot } from "./types";
 
 const GlobeView = lazy(() => import("./components/GlobeView"));
 const MapView = lazy(() => import("./components/MapView"));
+const MapView3D = lazy(() => import("./components/MapView3D"));
 
 function ViewFallback() {
   return (
@@ -93,7 +96,6 @@ export default function App() {
   const [isSample, setIsSample] = useState<boolean>(() =>
     tripFromHash() ? false : loadTrip() === null ? true : loadIsSample(),
   );
-  const [view, setView] = useState<ViewMode>(() => loadView());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -110,6 +112,8 @@ export default function App() {
   } | null>(null);
   const [postcard, setPostcard] = useState<{ count: number } | null>(null);
   const [revealOpen, setRevealOpen] = useState(false);
+  const lod = useAutoLod(loadView(), revealOpen || playing);
+  const view = lod.view;
   const handleRef = useRef<MapHandle | null>(null);
   const tourRef = useRef(false);
   const tripLenRef = useRef(trip.length);
@@ -122,9 +126,10 @@ export default function App() {
 
   useEffect(() => saveTrip(trip), [trip]);
   useEffect(() => saveIsSample(isSample), [isSample]);
-  useEffect(() => saveView(view), [view]);
   useEffect(() => {
     clearHash();
+    warmPlaces();
+    void loadCountries();
     if (!supabaseEnabled) return;
     const m = location.pathname.match(/^\/t\/([A-Za-z0-9]+)$/);
     if (!m) return;
@@ -218,17 +223,9 @@ export default function App() {
   }, []);
 
   const handleSearchSelect = useCallback(
-    (r: GeocodeResult) => {
+    (place: Spot) => {
       const first = tripLenRef.current === 0;
-      const spot: Spot = {
-        id: makeId(),
-        name: r.name,
-        lat: r.lat,
-        lng: r.lng,
-        country: r.country,
-        countryCode: r.countryCode,
-        emoji: "📍",
-      };
+      const spot: Spot = { ...place, id: makeId() };
       addSpot(spot, { fly: true });
       toast.success(
         first
@@ -240,10 +237,15 @@ export default function App() {
   );
 
   const rollSurprise = useCallback(() => {
-    const next = pickRandomDestination(surprise ? [surprise.id] : []);
-    setSurprise(next);
-    setSheetOpen(false);
-    flyTo(next.lat, next.lng, 5);
+    void loadPlaces().then(() => {
+      const exclude = surprise ? new Set([surprise.name]) : undefined;
+      const next =
+        pickRandomPlace(exclude) ??
+        pickRandomDestination(surprise ? [surprise.id] : []);
+      setSurprise(next);
+      setSheetOpen(false);
+      flyTo(next.lat, next.lng, 5);
+    });
   }, [surprise, flyTo]);
 
   const handleSurpriseSave = useCallback(
@@ -494,14 +496,40 @@ export default function App() {
     handleRef,
   };
 
+  const layerStyle = (v: typeof view) => ({
+    opacity: lod.opacityOf(v),
+    transition: "opacity 450ms ease",
+    pointerEvents: (view === v ? "auto" : "none") as "auto" | "none",
+  });
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#0b1120]">
       <div className="absolute inset-0">
         <Suspense fallback={<ViewFallback />}>
-          {view === "globe" ? (
-            <GlobeView {...viewProps} revealing={revealOpen} />
-          ) : (
-            <MapView {...viewProps} />
+          {lod.rendered.includes("globe") && (
+            <div className="absolute inset-0" style={layerStyle("globe")}>
+              <GlobeView
+                {...viewProps}
+                revealing={revealOpen}
+                initialPov={lod.pov ?? undefined}
+                onCamera={lod.onGlobeCamera}
+              />
+            </div>
+          )}
+          {lod.rendered.includes("3d") && (
+            <div className="absolute inset-0" style={layerStyle("3d")}>
+              <MapView3D
+                {...viewProps}
+                initialCamera={lod.handoff ?? undefined}
+                onReady={lod.on3dReady}
+                onCamera={lod.on3dCamera}
+              />
+            </div>
+          )}
+          {lod.rendered.includes("map") && (
+            <div className="absolute inset-0" style={layerStyle("map")}>
+              <MapView {...viewProps} />
+            </div>
           )}
         </Suspense>
       </div>
@@ -538,7 +566,7 @@ export default function App() {
                 <TooltipContent>Surprise me with a place</TooltipContent>
               </Tooltip>
 
-              <ViewToggle value={view} onChange={setView} />
+              <ViewToggle value={view} onChange={lod.selectView} />
 
               <TripLibrary
                 docs={library}
@@ -701,7 +729,7 @@ export default function App() {
       {revealOpen && (
         <JourneyReveal
           trip={trip}
-          canShareImage={view === "globe"}
+          canShareImage={view !== "map"}
           onClose={() => setRevealOpen(false)}
           onReplay={replayJourney}
           onSave={() => void handleShare()}

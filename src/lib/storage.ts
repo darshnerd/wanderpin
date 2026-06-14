@@ -41,6 +41,8 @@ export function cleanSpot(s: Spot): Spot {
     note: s.note,
     mode: s.mode,
     status: s.status,
+    category: s.category,
+    region: s.region,
   };
 }
 
@@ -71,7 +73,7 @@ export function saveTrip(trip: Trip): void {
 
 export function loadView(): ViewMode {
   const v = localStorage.getItem(VIEW_KEY);
-  return v === "map" || v === "globe" ? v : "globe";
+  return v === "map" || v === "globe" || v === "3d" ? v : "globe";
 }
 
 export function saveView(view: ViewMode): void {

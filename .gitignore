@@ -32,3 +32,14 @@ doseguard.db
 app/doseguard.db
 app/api/data/*
 packages/api/app/data/
+# data build scripts + cache (local tooling; shipped output is public/*.json)
+scripts/
+staged/
+
+# Local env overrides (keep secrets out of git)
+.env*
+
+# Playwright outputs
+playwright-report/
+test-results/
+blob-report/

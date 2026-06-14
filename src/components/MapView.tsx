@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import {
+  LayersControl,
   MapContainer,
   Marker,
   Polyline,
@@ -86,14 +87,28 @@ export default function MapView({
       center={center}
       zoom={trip.length ? 4 : 2}
       minZoom={2}
+      maxZoom={19}
       worldCopyJump
       zoomControl={false}
       className="h-full w-full"
     >
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-      />
+      <LayersControl position="bottomleft">
+        <LayersControl.BaseLayer checked name="Map">
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            maxZoom={19}
+          />
+        </LayersControl.BaseLayer>
+        <LayersControl.BaseLayer name="Satellite">
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+            attribution="Imagery &copy; Esri, Maxar, Earthstar Geographics"
+            maxZoom={19}
+          />
+        </LayersControl.BaseLayer>
+      </LayersControl>
+
       <ZoomControl position="bottomright" />
       <ClickHandler onAddPin={onAddPin} />
       <FlyController handleRef={handleRef} />

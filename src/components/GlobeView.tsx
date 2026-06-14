@@ -3,7 +3,6 @@ import Globe, { type GlobeMethods } from "react-globe.gl";
 
 import { MODE_META, legMode } from "@/lib/transport";
 import { classify, tripCenter } from "@/lib/tripScale";
-import { dayHemisphere, type NightGeometry } from "@/lib/sun";
 import type { Spot, TransportMode, ViewProps } from "@/types";
 
 interface Arc {
@@ -14,11 +13,24 @@ interface Arc {
   mode: TransportMode;
 }
 
+interface Pov {
+  lat: number;
+  lng: number;
+  altitude: number;
+}
+
 function pointColor(s: Spot, selectedId: string | null): string {
   if (s.id === selectedId) return "#ffffff";
   if (s.status === "visited") return "#fcd34d";
   if (s.status === "booked") return "#38bdf8";
   return "#f59e0b";
+}
+
+function reduceMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
 }
 
 export default function GlobeView({
@@ -28,13 +40,20 @@ export default function GlobeView({
   onSelectPin,
   handleRef,
   revealing = false,
-}: ViewProps & { revealing?: boolean }) {
+  initialPov,
+  onCamera,
+}: ViewProps & {
+  revealing?: boolean;
+  initialPov?: Pov;
+  onCamera?: (altitude: number, lat: number, lng: number) => void;
+}) {
   const globeRef = useRef<GlobeMethods | undefined>(undefined);
   const containerRef = useRef<HTMLDivElement>(null);
   const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
   const draggedRef = useRef(false);
+  const readyRef = useRef(false);
+  const lastEmitRef = useRef(0);
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
     const el = containerRef.current;
@@ -48,14 +67,12 @@ export default function GlobeView({
   }, []);
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(id);
-  }, []);
-
-  useEffect(() => {
     handleRef.current = {
       flyTo: (lat: number, lng: number) => {
-        globeRef.current?.pointOfView({ lat, lng, altitude: 1.6 }, 1200);
+        globeRef.current?.pointOfView(
+          { lat, lng, altitude: 1.6 },
+          reduceMotion() ? 0 : 1200,
+        );
       },
       fitToTrip: (t, opts) => {
         const g = globeRef.current;
@@ -63,7 +80,10 @@ export default function GlobeView({
         const c = tripCenter(t);
         const altitude = opts?.altitude ?? classify(t).altitude;
         g.controls().autoRotate = false;
-        g.pointOfView({ lat: c.lat, lng: c.lng, altitude }, opts?.ms ?? 1200);
+        g.pointOfView(
+          { lat: c.lat, lng: c.lng, altitude },
+          reduceMotion() ? 0 : (opts?.ms ?? 1200),
+        );
       },
       snapshot: () => globeRef.current?.renderer().domElement ?? null,
     };
@@ -71,6 +91,13 @@ export default function GlobeView({
       handleRef.current = null;
     };
   }, [handleRef]);
+
+  useEffect(() => {
+    if (!readyRef.current || !initialPov) return;
+    globeRef.current?.pointOfView(initialPov, 0);
+    const c = globeRef.current?.controls();
+    if (c) c.autoRotate = false;
+  }, [initialPov]);
 
   const points = useMemo(() => trip.map((s) => ({ ...s })), [trip]);
 
@@ -87,8 +114,6 @@ export default function GlobeView({
     }
     return out;
   }, [trip]);
-
-  const daylight = useMemo(() => [{ geometry: dayHemisphere(now) }], [now]);
 
   return (
     <div
@@ -118,10 +143,18 @@ export default function GlobeView({
         onGlobeReady={() => {
           const g = globeRef.current;
           if (!g) return;
-          g.pointOfView({ lat: 25, lng: 10, altitude: 2.3 });
+          readyRef.current = true;
+          g.pointOfView(initialPov ?? { lat: 25, lng: 10, altitude: 2.3 });
           const controls = g.controls();
-          controls.autoRotate = true;
+          controls.autoRotate = !initialPov && !reduceMotion();
           controls.autoRotateSpeed = 0.55;
+        }}
+        onZoom={(pov: { lat: number; lng: number; altitude: number }) => {
+          if (!onCamera) return;
+          const t = typeof performance !== "undefined" ? performance.now() : 0;
+          if (t - lastEmitRef.current < 90) return;
+          lastEmitRef.current = t;
+          onCamera(pov.altitude, pov.lat, pov.lng);
         }}
         pointsData={points}
         pointLat="lat"
@@ -136,15 +169,6 @@ export default function GlobeView({
           return `<div style="font:600 12px sans-serif;color:#fff;background:rgba(15,23,42,.9);padding:4px 8px;border-radius:6px">${s.emoji ?? "📍"} ${s.name}</div>`;
         }}
         onPointClick={(d: object) => onSelectPin((d as Spot).id)}
-        polygonsData={daylight}
-        polygonGeoJsonGeometry={(d: object) =>
-          (d as { geometry: NightGeometry }).geometry as never
-        }
-        polygonCapColor={() => "rgba(255,224,150,0.10)"}
-        polygonSideColor={() => "rgba(0,0,0,0)"}
-        polygonStrokeColor={() => "rgba(255,221,150,0.16)"}
-        polygonAltitude={0.006}
-        polygonsTransitionDuration={0}
         arcsData={arcs}
         arcStartLat="startLat"
         arcStartLng="startLng"

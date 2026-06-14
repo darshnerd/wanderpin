@@ -19,6 +19,8 @@ function pack(trip: Trip) {
     v: s.vibe,
     f: s.fact,
     t: s.note,
+    k: s.category,
+    r: s.region,
   }));
 }
 
@@ -51,6 +53,8 @@ export function decodeTrip(payload: string): Trip | null {
         vibe: p.v,
         fact: p.f,
         note: p.t,
+        category: p.k,
+        region: p.r,
       }));
   } catch {
     return null;

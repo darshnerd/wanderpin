@@ -52,7 +52,13 @@ import { cn, flagEmoji, formatKm } from "@/lib/utils";
 import { totalDistance } from "@/lib/distance";
 import { co2Kg, formatCo2, formatDuration, timezonesCrossed } from "@/lib/stats";
 import { MODE_CYCLE, MODE_META, legKm, legMode, tripHours } from "@/lib/transport";
-import { isDaylight, localSolarTime } from "@/lib/sun";
+import { isDaylight, localTimeAt } from "@/lib/sun";
+import {
+  continentsOf,
+  currenciesOf,
+  languagesOf,
+  useCountries,
+} from "@/lib/countries";
 import { fetchWeatherNow, type WeatherNow } from "@/lib/weather";
 import {
   downloadFile,
@@ -113,6 +119,10 @@ export function TripPanel({
     trip.map((s) => s.countryCode ?? s.country ?? s.name),
   ).size;
   const visited = trip.filter((s) => s.status === "visited").length;
+  const countryMap = useCountries();
+  const continents = continentsOf(trip, countryMap);
+  const currencies = currenciesOf(trip, countryMap);
+  const languages = languagesOf(trip, countryMap);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -187,19 +197,20 @@ export function TripPanel({
             >
               <ol className="space-y-1 py-1">
                 {trip.map((spot, i) => (
-                  <Fragment key={spot.id}>
-                    {i > 0 && (
-                      <LegConnector trip={trip} i={i} onCycle={cycleMode} />
-                    )}
-                    <StopItem
-                      spot={spot}
-                      index={i}
-                      selected={selectedId === spot.id}
-                      onSelect={onSelect}
-                      onRemove={onRemove}
-                      onUpdate={onUpdate}
-                    />
-                  </Fragment>
+                  <StopItem
+                    key={spot.id}
+                    spot={spot}
+                    index={i}
+                    selected={selectedId === spot.id}
+                    onSelect={onSelect}
+                    onRemove={onRemove}
+                    onUpdate={onUpdate}
+                    arrival={
+                      i > 0 ? (
+                        <LegConnector trip={trip} i={i} onCycle={cycleMode} />
+                      ) : null
+                    }
+                  />
                 ))}
               </ol>
             </SortableContext>
@@ -250,6 +261,27 @@ export function TripPanel({
                       label="CO₂"
                       value={formatCo2(co2Kg(distance))}
                     />
+                    {continents.length > 0 && (
+                      <Stat
+                        icon={<span className="text-[13px] leading-none">🌍</span>}
+                        label="Continents"
+                        value={String(continents.length)}
+                      />
+                    )}
+                    {currencies.length > 0 && (
+                      <Stat
+                        icon={<span className="text-[13px] leading-none">💱</span>}
+                        label="Currencies"
+                        value={String(currencies.length)}
+                      />
+                    )}
+                    {languages.length > 0 && (
+                      <Stat
+                        icon={<span className="text-[13px] leading-none">🗣️</span>}
+                        label="Languages"
+                        value={String(languages.length)}
+                      />
+                    )}
                   </div>
                 </AccordionContent>
               </AccordionItem>
@@ -357,11 +389,11 @@ function LegConnector({
   const meta = MODE_META[legMode(trip, i)];
   const km = legKm(trip, i);
   return (
-    <li className="flex items-center gap-2 py-0.5 pl-9 pr-2">
+    <div className="flex items-center gap-2 pb-1 pl-9 pr-2">
       <button
         type="button"
         onClick={() => onCycle(i)}
-        aria-label={`Transport to ${trip[i].name}: ${meta.label}. Tap to change.`}
+        aria-label={`Arrive in ${trip[i].name} by ${meta.label}. Tap to change.`}
         title="Tap to change transport"
         className="flex cursor-pointer items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium transition-colors hover:bg-muted"
       >
@@ -369,7 +401,7 @@ function LegConnector({
         <span>{meta.label}</span>
       </button>
       <span className="text-muted-foreground text-[11px]">{formatKm(km)}</span>
-    </li>
+    </div>
   );
 }
 
@@ -380,6 +412,7 @@ interface StopItemProps {
   onSelect: (spot: Spot) => void;
   onRemove: (id: string) => void;
   onUpdate: (id: string, patch: Partial<Spot>) => void;
+  arrival?: React.ReactNode;
 }
 
 function StopItem({
@@ -389,6 +422,7 @@ function StopItem({
   onSelect,
   onRemove,
   onUpdate,
+  arrival,
 }: StopItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: spot.id });
@@ -434,6 +468,11 @@ function StopItem({
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-medium">{spot.name}</span>
+        {(spot.region || spot.country) && (
+          <span className="text-muted-foreground block truncate text-[11px]">
+            {[spot.region, spot.country].filter(Boolean).join(", ")}
+          </span>
+        )}
         {spot.vibe && (
           <Badge
             variant="secondary"
@@ -449,7 +488,7 @@ function StopItem({
         )}
         <span className="text-muted-foreground/80 mt-0.5 flex items-center gap-1 text-[11px]">
           {!day && !weather && <span>🌙</span>}
-          <span className="tabular-nums">{localSolarTime(spot.lng)}</span>
+          <span className="tabular-nums">{localTimeAt(spot.lat, spot.lng)}</span>
           {weather && (
             <span>
               · {!day && weather.code <= 1 ? "🌙" : weather.glyph} {weather.tempC}°
@@ -472,6 +511,7 @@ function StopItem({
 
   return (
     <li ref={setNodeRef} style={style} className={cn(isDragging && "relative z-10")}>
+      {arrival}
       <div
         className={cn(
           "group flex items-center gap-1.5 rounded-lg px-1.5 py-2 transition-colors",
@@ -584,7 +624,7 @@ function StopItem({
             </button>
           </div>
         ) : (
-          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100">
             <button
               type="button"
               aria-label={`Edit ${spot.name}`}

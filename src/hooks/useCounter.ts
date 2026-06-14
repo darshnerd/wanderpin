@@ -11,6 +11,14 @@ export function useCounter(
 
   useEffect(() => {
     if (!run) return;
+    if (
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setValue(target);
+      fromRef.current = target;
+      return;
+    }
     let raf = 0;
     const start = performance.now();
     const from = fromRef.current;

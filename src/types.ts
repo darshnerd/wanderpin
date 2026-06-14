@@ -15,11 +15,13 @@ export interface Spot {
   note?: string;
   mode?: TransportMode;
   status?: StopStatus;
+  category?: string;
+  region?: string;
 }
 
 export type Trip = Spot[];
 
-export type ViewMode = "globe" | "map";
+export type ViewMode = "globe" | "map" | "3d";
 
 export interface MapHandle {
   flyTo: (lat: number, lng: number, opts?: { zoom?: number }) => void;
