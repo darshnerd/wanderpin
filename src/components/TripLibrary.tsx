@@ -32,7 +32,7 @@ export function TripLibrary({
           className="bg-background/90 shadow-sm backdrop-blur"
         >
           <Bookmark className="size-4" />
-          <span className="hidden sm:inline">Trips</span>
+          <span>Trips</span>
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-80 p-0">

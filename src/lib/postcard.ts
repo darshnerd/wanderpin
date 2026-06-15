@@ -10,17 +10,17 @@ export interface PostcardMeta {
   stats: PostcardStat[];
 }
 
-export function exportPostcard(
+function drawPostcard(
   source: HTMLCanvasElement,
   meta: PostcardMeta,
-): boolean {
+): HTMLCanvasElement | null {
   const W = 1200;
   const H = 1500;
   const canvas = document.createElement("canvas");
   canvas.width = W;
   canvas.height = H;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return false;
+  if (!ctx) return null;
 
   ctx.fillStyle = "#0b1120";
   ctx.fillRect(0, 0, W, H);
@@ -31,7 +31,7 @@ export function exportPostcard(
   try {
     ctx.drawImage(source, sx, sy, sSide, sSide, 0, 0, W, W);
   } catch {
-    return false;
+    return null;
   }
 
   const grad = ctx.createLinearGradient(0, H * 0.45, 0, H);
@@ -70,6 +70,15 @@ export function exportPostcard(
   ctx.font = "600 30px system-ui, sans-serif";
   ctx.fillText("wanderpin", W / 2, 1445);
 
+  return canvas;
+}
+
+export function exportPostcard(
+  source: HTMLCanvasElement,
+  meta: PostcardMeta,
+): boolean {
+  const canvas = drawPostcard(source, meta);
+  if (!canvas) return false;
   const a = document.createElement("a");
   a.href = canvas.toDataURL("image/png");
   a.download = "wanderpin-postcard.png";
@@ -77,4 +86,15 @@ export function exportPostcard(
   a.click();
   a.remove();
   return true;
+}
+
+export function composePostcardBlob(
+  source: HTMLCanvasElement,
+  meta: PostcardMeta,
+): Promise<Blob | null> {
+  const canvas = drawPostcard(source, meta);
+  if (!canvas) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob), "image/png");
+  });
 }

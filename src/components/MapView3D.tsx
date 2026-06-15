@@ -215,10 +215,7 @@ export default function MapView3D({
         map.setSky({
           "sky-color": "#0b1733",
           "horizon-color": "#2a3f6b",
-          "fog-color": "#0b1120",
           "sky-horizon-blend": 0.6,
-          "horizon-fog-blend": 0.6,
-          "fog-ground-blend": 0.4,
         });
       } catch {
         /* sky unsupported */

@@ -126,7 +126,7 @@ export function JourneyReveal({
     : "";
 
   return (
-    <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center md:pr-[21rem]">
+    <div className="pointer-events-none fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center lg:pr-[21rem]">
       <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/85 via-black/40 to-transparent" />
       <div className="animate-in fade-in zoom-in-95 slide-in-from-bottom-4 motion-reduce:animate-none pointer-events-auto relative w-[min(94vw,30rem)] rounded-2xl border border-white/10 bg-slate-950/80 p-5 text-center text-white shadow-2xl backdrop-blur-md duration-500 sm:p-6">
         <div className="absolute inset-x-0 top-0 h-1 rounded-t-2xl bg-gradient-to-r from-sky-400 via-indigo-400 to-violet-400" />
