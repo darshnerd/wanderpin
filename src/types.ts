@@ -17,6 +17,7 @@ export interface Spot {
   status?: StopStatus;
   category?: string;
   region?: string;
+  day?: number;
 }
 
 export type Trip = Spot[];

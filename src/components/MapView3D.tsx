@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-import { MODE_META, legMode } from "@/lib/transport";
+import { createRouteArcLayer, type RouteArcLayer } from "@/lib/arcLayer";
 import type { Spot, ViewProps } from "@/types";
 
 const STYLE = "https://tiles.openfreemap.org/styles/liberty";
@@ -20,49 +20,15 @@ function reduceMotion(): boolean {
   );
 }
 
+function fadeForZoom(z: number): number {
+  return Math.max(0, Math.min(1, (12.5 - z) / 3));
+}
+
 function statusColor(s: Spot, selectedId: string | null): string {
   if (s.id === selectedId) return "#ffffff";
   if (s.status === "visited") return "#fcd34d";
   if (s.status === "booked") return "#38bdf8";
   return "#f59e0b";
-}
-
-function greatCircle(
-  a: [number, number],
-  b: [number, number],
-  n = 64,
-): [number, number][] {
-  const R = Math.PI / 180;
-  const D = 180 / Math.PI;
-  const lat1 = a[1] * R;
-  const lon1 = a[0] * R;
-  const lat2 = b[1] * R;
-  const lon2 = b[0] * R;
-  const d =
-    2 *
-    Math.asin(
-      Math.sqrt(
-        Math.sin((lat2 - lat1) / 2) ** 2 +
-          Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2,
-      ),
-    );
-  if (d < 1e-9) return [a, b];
-  const out: [number, number][] = [];
-  for (let i = 0; i <= n; i++) {
-    const f = i / n;
-    const A = Math.sin((1 - f) * d) / Math.sin(d);
-    const B = Math.sin(f * d) / Math.sin(d);
-    const x =
-      A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
-    const y =
-      A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
-    const z = A * Math.sin(lat1) + B * Math.sin(lat2);
-    out.push([
-      Math.atan2(y, x) * D,
-      Math.atan2(z, Math.sqrt(x * x + y * y)) * D,
-    ]);
-  }
-  return out;
 }
 
 export default function MapView3D({
@@ -74,71 +40,65 @@ export default function MapView3D({
   initialCamera,
   onReady,
   onCamera,
+  active = false,
 }: ViewProps & {
   initialCamera?: Camera;
   onReady?: () => void;
   onCamera?: (zoom: number, lat: number, lng: number) => void;
+  active?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const arcRef = useRef<RouteArcLayer | null>(null);
   const loadedRef = useRef(false);
   const readySentRef = useRef(false);
   const lastEmitRef = useRef(0);
+  const drawOnRafRef = useRef(0);
   const tripRef = useRef(trip);
   const selectedRef = useRef(selectedId);
+  const activeRef = useRef(active);
   const handoffRef = useRef(initialCamera);
   const onCameraRef = useRef(onCamera);
   const onReadyRef = useRef(onReady);
   tripRef.current = trip;
   selectedRef.current = selectedId;
+  activeRef.current = active;
   handoffRef.current = initialCamera;
   onCameraRef.current = onCamera;
   onReadyRef.current = onReady;
 
-  function drawRoute() {
+  function animateDrawOn() {
     const map = mapRef.current;
-    if (!map || !loadedRef.current) return;
-    const t = tripRef.current;
-    const features = [];
-    for (let i = 1; i < t.length; i++) {
-      features.push({
-        type: "Feature",
-        properties: { color: MODE_META[legMode(t, i)].color },
-        geometry: {
-          type: "LineString",
-          coordinates: greatCircle(
-            [t[i - 1].lng, t[i - 1].lat],
-            [t[i].lng, t[i].lat],
-          ),
-        },
-      });
-    }
-    const data = { type: "FeatureCollection", features } as never;
-    const src = map.getSource("route") as maplibregl.GeoJSONSource | undefined;
-    if (src) {
-      src.setData(data);
+    const arc = arcRef.current;
+    if (!map || !arc) return;
+    cancelAnimationFrame(drawOnRafRef.current);
+    if (reduceMotion()) {
+      arc.setProgress(1);
+      map.triggerRepaint();
       return;
     }
-    map.addSource("route", { type: "geojson", data });
-    map.addLayer({
-      id: "route-casing",
-      type: "line",
-      source: "route",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: { "line-color": "#0b1120", "line-width": 7, "line-opacity": 0.45 },
-    });
-    map.addLayer({
-      id: "route-line",
-      type: "line",
-      source: "route",
-      layout: { "line-cap": "round", "line-join": "round" },
-      paint: {
-        "line-color": ["get", "color"],
-        "line-width": 4,
-        "line-opacity": 1,
-      },
-    });
+    const dur = 1400;
+    const start = typeof performance !== "undefined" ? performance.now() : 0;
+    const tick = () => {
+      const now = typeof performance !== "undefined" ? performance.now() : 0;
+      const e = Math.min(1, (now - start) / dur);
+      arc.setProgress(1 - Math.pow(1 - e, 3));
+      map.triggerRepaint();
+      if (e < 1) drawOnRafRef.current = requestAnimationFrame(tick);
+    };
+    arc.setProgress(0);
+    drawOnRafRef.current = requestAnimationFrame(tick);
+  }
+
+  function drawArcs() {
+    const map = mapRef.current;
+    const arc = arcRef.current;
+    if (!map || !arc || !loadedRef.current) return;
+    arc.setData(tripRef.current);
+    arc.setSelected(tripRef.current, selectedRef.current);
+    arc.setFade(fadeForZoom(map.getZoom()));
+    map.triggerRepaint();
   }
 
   function drawMarkers() {
@@ -237,8 +197,12 @@ export default function MapView3D({
         map.setTerrain({ source: "dem", exaggeration: 1.2 });
       } catch {}
       loadedRef.current = true;
-      drawRoute();
+      const arc = createRouteArcLayer();
+      map.addLayer(arc);
+      arcRef.current = arc;
+      drawArcs();
       drawMarkers();
+      if (activeRef.current) animateDrawOn();
       if (handoffRef.current) {
         map.easeTo({ pitch: 55, duration: reduceMotion() ? 0 : 900 });
       } else {
@@ -253,11 +217,13 @@ export default function MapView3D({
     });
 
     map.on("zoom", () => {
+      const z = map.getZoom();
+      arcRef.current?.setFade(fadeForZoom(z));
       const t = typeof performance !== "undefined" ? performance.now() : 0;
       if (t - lastEmitRef.current < 150) return;
       lastEmitRef.current = t;
       const c = map.getCenter();
-      onCameraRef.current?.(map.getZoom(), c.lat, c.lng);
+      onCameraRef.current?.(z, c.lat, c.lng);
     });
 
     let clickTimer: ReturnType<typeof setTimeout> | undefined;
@@ -269,8 +235,10 @@ export default function MapView3D({
     map.on("dblclick", () => clearTimeout(clickTimer));
 
     return () => {
+      cancelAnimationFrame(drawOnRafRef.current);
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
+      arcRef.current = null;
       map.remove();
       mapRef.current = null;
       loadedRef.current = false;
@@ -299,7 +267,12 @@ export default function MapView3D({
           essential: true,
         });
       },
-      fitToTrip: () => fit(true),
+      fitToTrip: (t) => {
+        if (t && t.length) {
+          tripRef.current = t;
+        }
+        fit(true);
+      },
       snapshot: () => mapRef.current?.getCanvas() ?? null,
     };
     return () => {
@@ -309,10 +282,15 @@ export default function MapView3D({
   }, [handleRef]);
 
   useEffect(() => {
-    drawRoute();
+    drawArcs();
     drawMarkers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [trip, selectedId]);
+
+  useEffect(() => {
+    if (active && arcRef.current && loadedRef.current) animateDrawOn();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
 
   return <div ref={containerRef} className="h-full w-full bg-[#0b1120]" />;
 }

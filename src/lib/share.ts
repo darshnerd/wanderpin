@@ -21,6 +21,7 @@ function pack(trip: Trip) {
     t: s.note,
     k: s.category,
     r: s.region,
+    d: s.day,
   }));
 }
 
@@ -55,6 +56,7 @@ export function decodeTrip(payload: string): Trip | null {
         note: p.t,
         category: p.k,
         region: p.r,
+        day: typeof p.d === "number" ? p.d : undefined,
       }));
   } catch {
     return null;

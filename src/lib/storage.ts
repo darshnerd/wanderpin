@@ -43,6 +43,7 @@ export function cleanSpot(s: Spot): Spot {
     status: s.status,
     category: s.category,
     region: s.region,
+    day: s.day,
   };
 }
 

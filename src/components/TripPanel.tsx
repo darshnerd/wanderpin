@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Check,
   Clock,
@@ -48,11 +48,13 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./ui/hover-card";
+import { DayTimeline } from "./DayTimeline";
 import { cn, flagEmoji, formatKm } from "@/lib/utils";
 import { totalDistance } from "@/lib/distance";
 import { co2Kg, formatCo2, formatDuration, timezonesCrossed } from "@/lib/stats";
 import { MODE_CYCLE, MODE_META, legKm, legMode, tripHours } from "@/lib/transport";
 import { isDaylight, localTimeAt } from "@/lib/sun";
+import { hasDays } from "@/lib/journey";
 import {
   continentsOf,
   currenciesOf,
@@ -101,6 +103,8 @@ interface TripPanelProps {
   onUpdate: (id: string, patch: Partial<Spot>) => void;
   onClear: () => void;
   onInspire?: () => void;
+  onFitDay: (spots: Spot[]) => void;
+  onPlayDay: (spots: Spot[]) => void;
 }
 
 export function TripPanel({
@@ -113,7 +117,12 @@ export function TripPanel({
   onUpdate,
   onClear,
   onInspire,
+  onFitDay,
+  onPlayDay,
 }: TripPanelProps) {
+  const [mode, setMode] = useState<"stops" | "days">(() =>
+    hasDays(trip) ? "days" : "stops",
+  );
   const distance = totalDistance(trip);
   const countries = new Set(
     trip.map((s) => s.countryCode ?? s.country ?? s.name),
@@ -167,8 +176,40 @@ export function TripPanel({
         </div>
       )}
 
+      {trip.length > 0 && (
+        <div className="px-4 pb-2">
+          <div className="inline-flex w-full rounded-md border border-border bg-background p-0.5">
+            {(["stops", "days"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                aria-pressed={mode === m}
+                className={cn(
+                  "flex-1 rounded-[5px] px-2 py-1 text-xs font-medium capitalize transition-colors cursor-pointer",
+                  mode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {m}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
-        {trip.length === 0 ? (
+        {mode === "days" ? (
+          <DayTimeline
+            trip={trip}
+            selectedId={selectedId}
+            onSelect={onSelect}
+            onReorder={onReorder}
+            onFitDay={onFitDay}
+            onPlayDay={onPlayDay}
+          />
+        ) : trip.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 text-5xl">🌍</div>
             <p className="text-base font-semibold tracking-tight">

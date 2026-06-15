@@ -76,6 +76,7 @@ import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
 import { fetchSharedTrip, supabaseEnabled } from "./lib/supabase";
 import { loadPlaces, pickRandomPlace, warmPlaces } from "./lib/places";
 import { loadCountries } from "./lib/countries";
+import { normalizeDays } from "./lib/journey";
 import { useAutoLod } from "./hooks/useAutoLod";
 import type { MapHandle, Spot } from "./types";
 
@@ -290,7 +291,7 @@ export default function App() {
     (id: string) => {
       const snapshot = trip;
       const removed = trip.find((s) => s.id === id);
-      setTrip((prev) => prev.filter((s) => s.id !== id));
+      setTrip((prev) => normalizeDays(prev.filter((s) => s.id !== id)));
       setIsSample(false);
       setSelectedId((cur) => (cur === id ? null : cur));
       toast(`Removed ${removed?.name ?? "stop"}`, {
@@ -318,7 +319,7 @@ export default function App() {
   }, [trip]);
 
   const handleReorder = useCallback((next: Spot[]) => {
-    setTrip(next);
+    setTrip(normalizeDays(next));
     setIsSample(false);
   }, []);
 
@@ -334,6 +335,44 @@ export default function App() {
       setSheetOpen(false);
     },
     [flyTo],
+  );
+
+  const fitDay = useCallback(
+    (spots: Spot[]) => {
+      if (spots.length === 0) return;
+      activeHandle()?.fitToTrip(spots);
+    },
+    [activeHandle],
+  );
+
+  const playDay = useCallback(
+    async (spots: Spot[]) => {
+      if (spots.length === 0) return;
+      if (spots.length < 2) {
+        activeHandle()?.fitToTrip(spots);
+        setSelectedId(spots[0].id);
+        return;
+      }
+      setRevealOpen(false);
+      tourRef.current = true;
+      setPlaying(true);
+      activeHandle()?.fitToTrip(spots);
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+      await sleep(900);
+      for (let i = 0; i < spots.length; i++) {
+        if (!tourRef.current) break;
+        const s = spots[i];
+        setSelectedId(s.id);
+        setTourSpot({ spot: s, i: i + 1, total: spots.length });
+        flyTo(s.lat, s.lng, 6);
+        await sleep(1800);
+      }
+      tourRef.current = false;
+      setPlaying(false);
+      setTourSpot(null);
+      activeHandle()?.fitToTrip(spots);
+    },
+    [flyTo, activeHandle],
   );
 
   const publishLink = useCallback(async (): Promise<string> => {
@@ -384,8 +423,7 @@ export default function App() {
       tourRef.current = true;
       setPlaying(true);
 
-      const zoomFor = (km: number) =>
-        km < 25 ? 12 : km < 75 ? 10 : km < 150 ? 8.5 : 7;
+      const zoomFor = (km: number) => (km < 25 ? 12 : 10);
       const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const ensureEngine = async (engine: "globe" | "3d") => {
         if (viewRef.current !== engine) lod.selectView(engine);
@@ -575,6 +613,8 @@ export default function App() {
       onUpdate={handleUpdateSpot}
       onClear={handleClear}
       onInspire={rollSurprise}
+      onFitDay={fitDay}
+      onPlayDay={playDay}
     />
   );
 
@@ -609,6 +649,7 @@ export default function App() {
                 initialCamera={lod.handoff ?? undefined}
                 onReady={lod.on3dReady}
                 onCamera={lod.on3dCamera}
+                active={view === "3d"}
               />
             </div>
           )}
