@@ -58,7 +58,6 @@ export function SearchBar({ onSelect }: SearchBarProps) {
         });
       }
     } catch {
-      /* ignore */
     } finally {
       if (!ac.signal.aborted) setLoading(false);
     }

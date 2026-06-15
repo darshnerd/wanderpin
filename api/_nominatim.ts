@@ -48,7 +48,6 @@ export async function nominatim(
     return { status: 200, body: hit.body, cached: true };
   }
 
-  // keep this warm instance under Nominatim's 1 req/sec ceiling
   const wait = 1000 - (Date.now() - lastUpstreamCall);
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   lastUpstreamCall = Date.now();

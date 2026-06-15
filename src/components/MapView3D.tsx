@@ -27,7 +27,6 @@ function statusColor(s: Spot, selectedId: string | null): string {
   return "#f59e0b";
 }
 
-// Points along the great circle between a and b, so the line curves over the globe.
 function greatCircle(
   a: [number, number],
   b: [number, number],
@@ -53,8 +52,10 @@ function greatCircle(
     const f = i / n;
     const A = Math.sin((1 - f) * d) / Math.sin(d);
     const B = Math.sin(f * d) / Math.sin(d);
-    const x = A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
-    const y = A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
+    const x =
+      A * Math.cos(lat1) * Math.cos(lon1) + B * Math.cos(lat2) * Math.cos(lon2);
+    const y =
+      A * Math.cos(lat1) * Math.sin(lon1) + B * Math.cos(lat2) * Math.sin(lon2);
     const z = A * Math.sin(lat1) + B * Math.sin(lat2);
     out.push([
       Math.atan2(y, x) * D,
@@ -180,7 +181,13 @@ export default function MapView3D({
     }
     const b = new maplibregl.LngLatBounds();
     t.forEach((s) => b.extend([s.lng, s.lat]));
-    map.fitBounds(b, { padding: 90, pitch: 35, bearing: 0, maxZoom: 11, duration });
+    map.fitBounds(b, {
+      padding: 90,
+      pitch: 35,
+      bearing: 0,
+      maxZoom: 11,
+      duration,
+    });
   }
 
   useEffect(() => {
@@ -196,7 +203,6 @@ export default function MapView3D({
           : [10, 25],
       zoom: cam ? cam.zoom : trip.length ? 2.4 : 1.6,
       attributionControl: { compact: true },
-      // preserveDrawingBuffer lets us read the canvas back for postcard/video
       ...({ preserveDrawingBuffer: true } as object),
     });
     mapRef.current = map;
@@ -208,18 +214,14 @@ export default function MapView3D({
     map.on("style.load", () => {
       try {
         map.setProjection({ type: "globe" });
-      } catch {
-        /* projection unsupported */
-      }
+      } catch {}
       try {
         map.setSky({
           "sky-color": "#0b1733",
           "horizon-color": "#2a3f6b",
           "sky-horizon-blend": 0.6,
         });
-      } catch {
-        /* sky unsupported */
-      }
+      } catch {}
       if (!map.getSource("dem")) {
         map.addSource("dem", {
           type: "raster-dem",
@@ -233,15 +235,10 @@ export default function MapView3D({
       }
       try {
         map.setTerrain({ source: "dem", exaggeration: 1.2 });
-      } catch {
-        /* terrain unsupported */
-      }
-      // The OpenFreeMap style already ships a "building-3d" fill-extrusion layer.
+      } catch {}
       loadedRef.current = true;
       drawRoute();
       drawMarkers();
-      // When handed off from the globe, hold the handoff camera and just ease
-      // into the 3D tilt; otherwise frame the whole trip.
       if (handoffRef.current) {
         map.easeTo({ pitch: 55, duration: reduceMotion() ? 0 : 900 });
       } else {
@@ -281,12 +278,13 @@ export default function MapView3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // While preloading (hidden) the handoff target can move as the user keeps
-  // zooming the globe; track it without animation so tiles are warm on commit.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current || !initialCamera) return;
-    map.jumpTo({ center: [initialCamera.lng, initialCamera.lat], zoom: initialCamera.zoom });
+    map.jumpTo({
+      center: [initialCamera.lng, initialCamera.lat],
+      zoom: initialCamera.zoom,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialCamera?.lat, initialCamera?.lng, initialCamera?.zoom]);
 

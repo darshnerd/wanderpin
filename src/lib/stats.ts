@@ -1,8 +1,8 @@
 import type { Trip } from "@/types";
 
 const CRUISE_KMH = 800;
-const OVERHEAD_HOURS = 0.75; // rough taxi / climb / descent padding
-const CO2_KG_PER_KM = 0.15; // ballpark per-passenger for a flight
+const OVERHEAD_HOURS = 0.75;
+const CO2_KG_PER_KM = 0.15;
 
 export function flightHours(km: number): number {
   if (km <= 0) return 0;
@@ -18,7 +18,6 @@ export function formatDuration(hours: number): string {
   return `${h}h ${m}m`;
 }
 
-// rough count from the longitude spread of the trip (~15° per zone)
 export function timezonesCrossed(trip: Trip): number {
   if (trip.length < 2) return 0;
   const lngs = trip.map((s) => s.lng);

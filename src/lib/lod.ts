@@ -1,8 +1,6 @@
-// Commit to 3D well before the globe degrades up close. INTENT starts warming
-// maplibre's tiles early; COMMIT crosses over while the globe still looks good.
-export const INTENT_ALT = 1.0;
-export const COMMIT_ALT = 0.55;
-export const RETURN_ZOOM = 3.2;
+export const INTENT_ALT = 1.9;
+export const COMMIT_ALT = 1.1;
+export const RETURN_ZOOM = 2.0;
 export const CROSS_MS = 450;
 
 export function altitudeToZoom(alt: number): number {

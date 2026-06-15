@@ -121,9 +121,6 @@ export default function App() {
   const lod = useAutoLod(loadView(), revealOpen || playing);
   const view = lod.view;
 
-  // Each view owns its own camera handle, so a view that unmounts (or is
-  // pre-mounted hidden during the LOD crossfade) can only clear its own ref —
-  // never the active view's. Camera calls route to whichever view is current.
   const globeHandleRef = useRef<MapHandle | null>(null);
   const map3dHandleRef = useRef<MapHandle | null>(null);
   const mapHandleRef = useRef<MapHandle | null>(null);
@@ -341,7 +338,8 @@ export default function App() {
 
   const publishLink = useCallback(async (): Promise<string> => {
     const key = JSON.stringify(trip.map((s) => [s.name, s.lat, s.lng]));
-    if (publishCacheRef.current?.key === key) return publishCacheRef.current.link;
+    if (publishCacheRef.current?.key === key)
+      return publishCacheRef.current.link;
     if (supabaseEnabled && trip.length > 0) {
       try {
         const r = await fetch("/api/publish", {
@@ -356,7 +354,6 @@ export default function App() {
           return link;
         }
       } catch {
-        /* empty */
       }
     }
     const url = buildShareUrl(trip);
@@ -387,27 +384,31 @@ export default function App() {
       tourRef.current = true;
       setPlaying(true);
 
-      // closer zoom for shorter hops, so the 3D arrival frames the place well
       const zoomFor = (km: number) =>
         km < 25 ? 12 : km < 75 ? 10 : km < 150 ? 8.5 : 7;
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
       const ensureEngine = async (engine: "globe" | "3d") => {
-        if (viewRef.current === engine) return;
-        lod.selectView(engine);
-        await new Promise((r) => setTimeout(r, engine === "3d" ? 1100 : 600));
+        if (viewRef.current !== engine) lod.selectView(engine);
+        const ref = engine === "3d" ? map3dHandleRef : globeHandleRef;
+        for (let t = 0; t < 30 && !ref.current; t++) await sleep(100);
+        await sleep(engine === "3d" ? 800 : 400);
       };
+
+      const anyShort = trip.some((_, i) => i > 0 && legKm(trip, i) < 300);
+      const engine = use3dShort && anyShort ? "3d" : "globe";
+      await ensureEngine(engine);
 
       for (let i = 0; i < trip.length; i++) {
         if (!tourRef.current) break;
         const spot = trip[i];
-        const km = i > 0 ? legKm(trip, i) : Infinity;
-        const use3d = use3dShort && i > 0 && km < 200;
         setSelectedId(spot.id);
         setTourSpot({ spot, i: i + 1, total: trip.length });
-        await ensureEngine(use3d ? "3d" : "globe");
-        if (!tourRef.current) break;
-        if (use3d) activeHandle()?.flyTo(spot.lat, spot.lng, { zoom: zoomFor(km) });
+        if (engine === "3d")
+          activeHandle()?.flyTo(spot.lat, spot.lng, {
+            zoom: i > 0 ? zoomFor(legKm(trip, i)) : 10,
+          });
         else flyTo(spot.lat, spot.lng, 5);
-        await new Promise((r) => setTimeout(r, use3d ? 2400 : 1800));
+        await sleep(engine === "3d" ? 2400 : 1800);
       }
 
       const completed = tourRef.current;
@@ -424,7 +425,7 @@ export default function App() {
 
   const playReel = useCallback(() => {
     if (trip.length < 2) return;
-    const hasShortLeg = trip.some((_, i) => i > 0 && legKm(trip, i) < 200);
+    const hasShortLeg = trip.some((_, i) => i > 0 && legKm(trip, i) < 300);
     if (hasShortLeg && reel3dPrefRef.current === null) {
       setReelPromptOpen(true);
       return;
@@ -633,7 +634,6 @@ export default function App() {
               <SearchBar onSelect={handleSearchSelect} />
             </div>
 
-            {/* Desktop: full inline toolbar */}
             <div className="hidden flex-wrap items-center gap-2 lg:flex">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -717,7 +717,6 @@ export default function App() {
               </Tooltip>
             </div>
 
-            {/* Mobile + tablet: compact — actions in a sheet, trip in a drawer */}
             <div className="ml-auto flex items-center gap-2 lg:hidden">
               <Sheet>
                 <SheetTrigger asChild>

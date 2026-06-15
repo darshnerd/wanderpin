@@ -1,6 +1,5 @@
 import type { Spot } from "@/types";
 
-// famous places with a fact + vibe for the Surprise me card. slug ids so seeding is stable.
 export const DESTINATIONS: Spot[] = [
   { id: "paris", name: "Paris", country: "France", countryCode: "fr", lat: 48.8566, lng: 2.3522, emoji: "🗼", vibe: "Romantic", fact: "The Eiffel Tower can grow ~15 cm taller in summer as its iron expands in the heat." },
   { id: "rome", name: "Rome", country: "Italy", countryCode: "it", lat: 41.9028, lng: 12.4964, emoji: "🏛️", vibe: "Historic", fact: "About €1.5 million in coins is tossed into the Trevi Fountain every year." },

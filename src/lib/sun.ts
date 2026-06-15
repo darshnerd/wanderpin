@@ -18,8 +18,6 @@ export function subsolarPoint(date: Date): { lat: number; lng: number } {
   return { lat: decl, lng: ((lng + 540) % 360) - 180 };
 }
 
-// Exact local wall-clock for a coordinate via its IANA timezone (DST-aware).
-// Falls back to a longitude estimate if the lookup ever fails.
 export function localTimeAt(
   lat: number,
   lng: number,
