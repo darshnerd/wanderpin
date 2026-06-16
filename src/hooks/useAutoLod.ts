@@ -149,6 +149,12 @@ export function useAutoLod(initial: ViewMode, suppressed: boolean) {
         return;
       }
       if (manualLockRef.current) return;
+      if (
+        typeof window !== "undefined" &&
+        window.matchMedia("(pointer: coarse)").matches &&
+        (navigator.hardwareConcurrency || 8) <= 4
+      )
+        return;
       if (phaseRef.current === "idle") {
         phaseRef.current = "preloading";
         readyRef.current = false;

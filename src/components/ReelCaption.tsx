@@ -1,12 +1,9 @@
 import { Badge } from "./ui/badge";
 import { flagEmoji } from "@/lib/utils";
-import type { Spot } from "@/types";
+import { useTour } from "@/lib/reelStore";
 
-interface ReelCaptionProps {
-  tour: { spot: Spot; i: number; total: number } | null;
-}
-
-export function ReelCaption({ tour }: ReelCaptionProps) {
+export function ReelCaption() {
+  const tour = useTour();
   if (!tour) return null;
   const { spot, i, total } = tour;
   return (

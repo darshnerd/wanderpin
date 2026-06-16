@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { Fragment, lazy, memo, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Check,
   Clock,
   Compass,
   Download,
   GripVertical,
+  Heart,
   Leaf,
   Navigation,
   Pencil,
@@ -48,7 +49,6 @@ import {
   HoverCardContent,
   HoverCardTrigger,
 } from "./ui/hover-card";
-import { DayTimeline } from "./DayTimeline";
 import { cn, flagEmoji, formatKm } from "@/lib/utils";
 import { totalDistance } from "@/lib/distance";
 import { co2Kg, formatCo2, formatDuration, timezonesCrossed } from "@/lib/stats";
@@ -69,8 +69,11 @@ import {
   toGPX,
   toJSON,
 } from "@/lib/share";
-import { optimizeOrder } from "@/lib/optimize";
 import type { Spot, StopStatus } from "@/types";
+
+const DayTimeline = lazy(() =>
+  import("./DayTimeline").then((m) => ({ default: m.DayTimeline })),
+);
 
 const STATUS_CYCLE: StopStatus[] = ["someday", "booked", "visited"];
 const STATUS_META: Record<StopStatus, { label: string; color: string }> = {
@@ -79,17 +82,30 @@ const STATUS_META: Record<StopStatus, { label: string; color: string }> = {
   visited: { label: "Visited", color: "#fcd34d" },
 };
 
-function useWeather(lat: number, lng: number): WeatherNow | null {
+const ric: (cb: () => void) => number =
+  typeof window !== "undefined" && typeof window.requestIdleCallback === "function"
+    ? (cb) => window.requestIdleCallback(cb)
+    : (cb) => window.setTimeout(cb, 200);
+const cic: (id: number) => void =
+  typeof window !== "undefined" && typeof window.cancelIdleCallback === "function"
+    ? (id) => window.cancelIdleCallback(id)
+    : (id) => window.clearTimeout(id);
+
+function useWeather(lat: number, lng: number, enabled: boolean): WeatherNow | null {
   const [w, setW] = useState<WeatherNow | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
-    void fetchWeatherNow(lat, lng).then((r) => {
-      if (alive) setW(r);
+    const id = ric(() => {
+      void fetchWeatherNow(lat, lng).then((r) => {
+        if (alive) setW(r);
+      });
     });
     return () => {
       alive = false;
+      cic(id);
     };
-  }, [lat, lng]);
+  }, [lat, lng, enabled]);
   return w;
 }
 
@@ -123,15 +139,36 @@ export function TripPanel({
   const [mode, setMode] = useState<"stops" | "days">(() =>
     hasDays(trip) ? "days" : "stops",
   );
-  const distance = totalDistance(trip);
-  const countries = new Set(
-    trip.map((s) => s.countryCode ?? s.country ?? s.name),
-  ).size;
-  const visited = trip.filter((s) => s.status === "visited").length;
   const countryMap = useCountries();
-  const continents = continentsOf(trip, countryMap);
-  const currencies = currenciesOf(trip, countryMap);
-  const languages = languagesOf(trip, countryMap);
+  const continents = useMemo(
+    () => continentsOf(trip, countryMap),
+    [trip, countryMap],
+  );
+  const currencies = useMemo(
+    () => currenciesOf(trip, countryMap),
+    [trip, countryMap],
+  );
+  const languages = useMemo(
+    () => languagesOf(trip, countryMap),
+    [trip, countryMap],
+  );
+  const countries = useMemo(
+    () => new Set(trip.map((s) => s.countryCode ?? s.country ?? s.name)).size,
+    [trip],
+  );
+  const visited = useMemo(
+    () => trip.filter((s) => s.status === "visited").length,
+    [trip],
+  );
+  const stats = useMemo(() => {
+    const distance = totalDistance(trip);
+    return {
+      distance: formatKm(distance),
+      time: formatDuration(tripHours(trip)),
+      zones: String(timezonesCrossed(trip)),
+      co2: formatCo2(co2Kg(distance)),
+    };
+  }, [trip]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -201,14 +238,22 @@ export function TripPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2">
         {mode === "days" ? (
-          <DayTimeline
-            trip={trip}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            onReorder={onReorder}
-            onFitDay={onFitDay}
-            onPlayDay={onPlayDay}
-          />
+          <Suspense
+            fallback={
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                Loading…
+              </div>
+            }
+          >
+            <DayTimeline
+              trip={trip}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              onReorder={onReorder}
+              onFitDay={onFitDay}
+              onPlayDay={onPlayDay}
+            />
+          </Suspense>
         ) : trip.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center px-6 text-center">
             <div className="mb-4 text-5xl">🌍</div>
@@ -238,20 +283,19 @@ export function TripPanel({
             >
               <ol className="space-y-1 py-1">
                 {trip.map((spot, i) => (
-                  <StopItem
-                    key={spot.id}
-                    spot={spot}
-                    index={i}
-                    selected={selectedId === spot.id}
-                    onSelect={onSelect}
-                    onRemove={onRemove}
-                    onUpdate={onUpdate}
-                    arrival={
-                      i > 0 ? (
-                        <LegConnector trip={trip} i={i} onCycle={cycleMode} />
-                      ) : null
-                    }
-                  />
+                  <Fragment key={spot.id}>
+                    {i > 0 && (
+                      <LegConnector trip={trip} i={i} onCycle={cycleMode} />
+                    )}
+                    <StopItem
+                      spot={spot}
+                      index={i}
+                      selected={selectedId === spot.id}
+                      onSelect={onSelect}
+                      onRemove={onRemove}
+                      onUpdate={onUpdate}
+                    />
+                  </Fragment>
                 ))}
               </ol>
             </SortableContext>
@@ -285,22 +329,22 @@ export function TripPanel({
                     <Stat
                       icon={<Route className="size-3.5" />}
                       label="Distance"
-                      value={formatKm(distance)}
+                      value={stats.distance}
                     />
                     <Stat
                       icon={<Plane className="size-3.5" />}
                       label="Time"
-                      value={formatDuration(tripHours(trip))}
+                      value={stats.time}
                     />
                     <Stat
                       icon={<Clock className="size-3.5" />}
                       label="Zones"
-                      value={String(timezonesCrossed(trip))}
+                      value={stats.zones}
                     />
                     <Stat
                       icon={<Leaf className="size-3.5" />}
                       label="CO₂"
-                      value={formatCo2(co2Kg(distance))}
+                      value={stats.co2}
                     />
                     {continents.length > 0 && (
                       <Stat
@@ -387,8 +431,9 @@ export function TripPanel({
             variant="outline"
             className="mt-2 w-full"
             disabled={trip.length < 3}
-            onClick={() => {
+            onClick={async () => {
               const before = totalDistance(trip);
+              const { optimizeOrder } = await import("@/lib/optimize");
               const next = optimizeOrder(trip);
               onReorder(next);
               const saved = before - totalDistance(next);
@@ -412,6 +457,11 @@ export function TripPanel({
             <Trash2 className="size-4" />
             Clear all
           </Button>
+          <p className="text-muted-foreground/70 mt-4 flex items-center justify-center gap-1 text-[11px]">
+            Made with{" "}
+            <Heart className="size-3 fill-rose-500 text-rose-500" /> in Stardance
+            by Darsh
+          </p>
         </footer>
       )}
     </div>
@@ -453,17 +503,15 @@ interface StopItemProps {
   onSelect: (spot: Spot) => void;
   onRemove: (id: string) => void;
   onUpdate: (id: string, patch: Partial<Spot>) => void;
-  arrival?: React.ReactNode;
 }
 
-function StopItem({
+const StopItem = memo(function StopItem({
   spot,
   index,
   selected,
   onSelect,
   onRemove,
   onUpdate,
-  arrival,
 }: StopItemProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: spot.id });
@@ -471,8 +519,12 @@ function StopItem({
   const [name, setName] = useState(spot.name);
   const [emoji, setEmoji] = useState(spot.emoji ?? "");
   const [note, setNote] = useState(spot.note ?? "");
-  const weather = useWeather(spot.lat, spot.lng);
-  const day = isDaylight(spot.lat, spot.lng);
+  const weather = useWeather(spot.lat, spot.lng, selected);
+  const day = useMemo(() => isDaylight(spot.lat, spot.lng), [spot.lat, spot.lng]);
+  const localTime = useMemo(
+    () => localTimeAt(spot.lat, spot.lng),
+    [spot.lat, spot.lng],
+  );
   const status: StopStatus = spot.status ?? "someday";
   const statusMeta = STATUS_META[status];
 
@@ -529,7 +581,7 @@ function StopItem({
         )}
         <span className="text-muted-foreground/80 mt-0.5 flex items-center gap-1 text-[11px]">
           {!day && !weather && <span>🌙</span>}
-          <span className="tabular-nums">{localTimeAt(spot.lat, spot.lng)}</span>
+          <span className="tabular-nums">{localTime}</span>
           {weather && (
             <span>
               · {!day && weather.code <= 1 ? "🌙" : weather.glyph} {weather.tempC}°
@@ -552,7 +604,6 @@ function StopItem({
 
   return (
     <li ref={setNodeRef} style={style} className={cn(isDragging && "relative z-10")}>
-      {arrival}
       <div
         className={cn(
           "group flex items-center gap-1.5 rounded-lg px-1.5 py-2 transition-colors",
@@ -687,7 +738,7 @@ function StopItem({
       </div>
     </li>
   );
-}
+});
 
 function Stat({
   icon,

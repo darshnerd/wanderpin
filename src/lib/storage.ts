@@ -126,3 +126,39 @@ export function saveLibrary(docs: TripDoc[]): void {
     return;
   }
 }
+
+export function loadOnboarded(): boolean {
+  try {
+    return localStorage.getItem("wanderpin.onboarded") === "true";
+  } catch {
+    return false;
+  }
+}
+
+export function saveOnboarded(v: boolean): void {
+  try {
+    localStorage.setItem("wanderpin.onboarded", String(v));
+  } catch {
+    return;
+  }
+}
+
+export function loadSeenTips(): string[] {
+  try {
+    const raw = localStorage.getItem("wanderpin.tips");
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export function markTipSeen(id: string): void {
+  try {
+    const seen = loadSeenTips();
+    if (seen.includes(id)) return;
+    localStorage.setItem("wanderpin.tips", JSON.stringify([...seen, id]));
+  } catch {
+    return;
+  }
+}

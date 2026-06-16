@@ -87,7 +87,7 @@ export function SearchBar({ onSelect }: SearchBarProps) {
             if (results.length > 0) setOpen(true);
           }}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Search a city or place"
+          placeholder="Search a city"
           aria-label="Search for a place"
           className="bg-background/90 h-9 pr-8 pl-8 shadow-sm backdrop-blur"
         />

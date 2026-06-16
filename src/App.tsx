@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -10,6 +11,7 @@ import { Toaster, toast } from "sonner";
 import {
   Compass,
   Dices,
+  HelpCircle,
   Loader2,
   Menu,
   Play,
@@ -51,17 +53,23 @@ import { SharedCta } from "./components/SharedCta";
 import { ReelCaption } from "./components/ReelCaption";
 import { JourneyReveal } from "./components/JourneyReveal";
 import { PostcardIntro } from "./components/PostcardIntro";
-import { ShareDialog } from "./components/ShareDialog";
 import { TripLibrary } from "./components/TripLibrary";
+import { OnboardingWelcome } from "./components/OnboardingWelcome";
+import { Coachmarks, type CoachStep } from "./components/Coachmarks";
 import { SEED_TRIP, pickRandomDestination } from "./data/destinations";
+import { TEMPLATES, type TripTemplate } from "./data/templates";
 import { reverseGeocode } from "./lib/geocode";
 import {
   loadIsSample,
   loadLibrary,
+  loadOnboarded,
+  loadSeenTips,
   loadTrip,
   loadView,
+  markTipSeen,
   saveIsSample,
   saveLibrary,
+  saveOnboarded,
   saveTrip,
   type TripDoc,
 } from "./lib/storage";
@@ -70,25 +78,73 @@ import { totalDistance } from "./lib/distance";
 import { formatDuration } from "./lib/stats";
 import { legKm, tripHours } from "./lib/transport";
 import { classify } from "./lib/tripScale";
-import { exportPostcard } from "./lib/postcard";
-import { recordCanvas } from "./lib/recorder";
 import { buildShareUrl, clearHash, tripFromHash } from "./lib/share";
 import { fetchSharedTrip, supabaseEnabled } from "./lib/supabase";
-import { loadPlaces, pickRandomPlace, warmPlaces } from "./lib/places";
+import { loadPlaces, pickRandomPlace } from "./lib/places";
 import { loadCountries } from "./lib/countries";
+import { loadGeoHint } from "./lib/geo";
 import { normalizeDays } from "./lib/journey";
+import { setTour } from "./lib/reelStore";
 import { useAutoLod } from "./hooks/useAutoLod";
-import type { MapHandle, Spot } from "./types";
+import { useMediaQuery } from "./hooks/useMediaQuery";
+import type { MapHandle, Spot, StopStatus } from "./types";
 
 const GlobeView = lazy(() => import("./components/GlobeView"));
 const MapView = lazy(() => import("./components/MapView"));
 const MapView3D = lazy(() => import("./components/MapView3D"));
+const ShareDialog = lazy(() =>
+  import("./components/ShareDialog").then((m) => ({ default: m.ShareDialog })),
+);
+
+const COACH_STEPS: CoachStep[] = [
+  {
+    selector: '[data-tour="add"]',
+    title: "Add a couple of places",
+    body: "Search a city, hit Take me somewhere, or click the globe. Add two or more to draw a route.",
+  },
+  {
+    selector: '[data-tour="play"]',
+    title: "Fly your journey",
+    body: "With two or more stops, press Play to soar between them.",
+  },
+  {
+    selector: '[data-tour="share"]',
+    title: "Share or save it",
+    body: "Turn your journey into a link, a postcard, or a video.",
+  },
+];
+
+const COACH_STEPS_MOBILE: CoachStep[] = [
+  {
+    selector: '[data-tour="add"]',
+    title: "Add a couple of places",
+    body: "Search a city, or tap the globe to drop a pin. Add two or more to draw a route.",
+  },
+  {
+    selector: '[data-tour="m-actions"]',
+    title: "Play, share & more",
+    body: "Fly your journey, share it, save a postcard, or organize days — it all lives here.",
+  },
+];
+
+const ACTION_TILE =
+  "flex flex-col items-center justify-center gap-1.5 rounded-xl bg-muted/50 py-3.5 text-xs font-medium transition-colors active:scale-95 disabled:opacity-40 cursor-pointer";
 
 function ViewFallback() {
   return (
-    <div className="flex h-full w-full items-center justify-center bg-[#0b1120] text-slate-300">
-      <Loader2 className="size-6 animate-spin" />
-      <span className="ml-2 text-sm">Loading the world…</span>
+    <div className="relative h-full w-full overflow-hidden bg-[#0b1120]">
+      <img
+        src="/globe-poster.jpg"
+        alt=""
+        aria-hidden
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <div className="absolute inset-x-0 bottom-10 flex justify-center">
+        <div className="flex items-center gap-2 rounded-full bg-black/40 px-4 py-2 text-sm text-slate-200 backdrop-blur">
+          <Loader2 className="size-4 animate-spin" />
+          Loading the world…
+        </div>
+      </div>
     </div>
   );
 }
@@ -102,6 +158,7 @@ export default function App() {
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [sharedCtaOpen, setSharedCtaOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
@@ -110,17 +167,26 @@ export default function App() {
   const [draftName, setDraftName] = useState("My trip");
   const [library, setLibrary] = useState<TripDoc[]>(() => loadLibrary());
   const [surprise, setSurprise] = useState<Spot | null>(null);
-  const [tourSpot, setTourSpot] = useState<{
-    spot: Spot;
-    i: number;
-    total: number;
-  } | null>(null);
   const [postcard, setPostcard] = useState<{ count: number } | null>(null);
   const [revealOpen, setRevealOpen] = useState(false);
   const [reelPromptOpen, setReelPromptOpen] = useState(false);
+  const [onboardOpen, setOnboardOpen] = useState(
+    () =>
+      typeof location !== "undefined" &&
+      !location.pathname.startsWith("/t/") &&
+      !loadOnboarded(),
+  );
+  const [coachStep, setCoachStep] = useState(-1);
+  const [rememberMode, setRememberMode] = useState(false);
+  const [cityHint, setCityHint] = useState<string | null>(null);
+  const rememberRef = useRef(false);
+  rememberRef.current = rememberMode;
+  const coachStepRef = useRef(coachStep);
+  coachStepRef.current = coachStep;
   const reel3dPrefRef = useRef<boolean | null>(null);
   const lod = useAutoLod(loadView(), revealOpen || playing);
   const view = lod.view;
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const globeHandleRef = useRef<MapHandle | null>(null);
   const map3dHandleRef = useRef<MapHandle | null>(null);
@@ -138,19 +204,24 @@ export default function App() {
 
   const tourRef = useRef(false);
   const tripLenRef = useRef(trip.length);
+  tripLenRef.current = trip.length;
   const publishCacheRef = useRef<{ key: string; link: string } | null>(null);
 
-  useEffect(() => {
-    tripLenRef.current = trip.length;
-  }, [trip.length]);
-
   useEffect(() => saveLibrary(library), [library]);
-
   useEffect(() => saveTrip(trip), [trip]);
   useEffect(() => saveIsSample(isSample), [isSample]);
   useEffect(() => {
+    if (coachStep === 0 && trip.length >= 2) setCoachStep(1);
+  }, [trip.length, coachStep]);
+  useEffect(() => {
+    if (isDesktop) return;
+    setActionsOpen(coachStep === 1);
+  }, [coachStep, isDesktop]);
+  useEffect(() => {
+    void loadGeoHint().then((g) => setCityHint(g?.city ?? null));
+  }, []);
+  useEffect(() => {
     clearHash();
-    warmPlaces();
     void loadCountries();
     if (!supabaseEnabled) return;
     const m = location.pathname.match(/^\/t\/([A-Za-z0-9]+)$/);
@@ -169,6 +240,34 @@ export default function App() {
       setPostcard({ count: loaded.length });
     })();
   }, []);
+
+  const tipOnce = useCallback(
+    (id: string, msg: string, action?: () => void) => {
+      if (loadSeenTips().includes(id)) return;
+      markTipSeen(id);
+      toast(
+        msg,
+        action ? { action: { label: "Show", onClick: action } } : undefined,
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (trip.length === 3)
+      tipOnce("3d", "✦ See your route in 3D — buildings and terrain.", () =>
+        lod.selectView("3d"),
+      );
+    if (trip.length === 5)
+      tipOnce(
+        "days",
+        "🗓️ Long trip? Organize it into days in your trip panel.",
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [trip.length, tipOnce]);
+
+  const newStatus = (fallback?: StopStatus): StopStatus | undefined =>
+    rememberRef.current ? "visited" : fallback;
 
   const flyTo = useCallback(
     (lat: number, lng: number, zoom?: number) => {
@@ -192,10 +291,11 @@ export default function App() {
     const lng = ((rawLng + 540) % 360) - 180;
     const id = makeId();
     const first = tripLenRef.current === 0;
+    const status = rememberRef.current ? ("visited" as StopStatus) : undefined;
     const fallbackName = `Pin ${lat.toFixed(2)}, ${lng.toFixed(2)}`;
     setTrip((prev) => [
       ...prev,
-      { id, name: "Locating…", lat, lng, emoji: "📍" },
+      { id, name: "Locating…", lat, lng, emoji: "📍", status },
     ]);
     setIsSample(false);
     setSelectedId(id);
@@ -212,7 +312,7 @@ export default function App() {
             onClick: () => {
               setTrip((prev) => [
                 ...prev,
-                { id: makeId(), name: fallbackName, lat, lng, emoji: "📍" },
+                { id: makeId(), name: fallbackName, lat, lng, emoji: "📍", status },
               ]);
               setIsSample(false);
             },
@@ -249,7 +349,7 @@ export default function App() {
   const handleSearchSelect = useCallback(
     (place: Spot) => {
       const first = tripLenRef.current === 0;
-      const spot: Spot = { ...place, id: makeId() };
+      const spot: Spot = { ...place, id: makeId(), status: newStatus(place.status) };
       addSpot(spot, { fly: true });
       toast.success(
         first
@@ -275,7 +375,7 @@ export default function App() {
   const handleSurpriseSave = useCallback(
     (d: Spot) => {
       const first = tripLenRef.current === 0;
-      const spot: Spot = { ...d, id: makeId() };
+      const spot: Spot = { ...d, id: makeId(), status: newStatus(d.status) };
       addSpot(spot, { fly: true });
       setSurprise(null);
       toast.success(
@@ -363,13 +463,13 @@ export default function App() {
         if (!tourRef.current) break;
         const s = spots[i];
         setSelectedId(s.id);
-        setTourSpot({ spot: s, i: i + 1, total: spots.length });
+        setTour({ spot: s, i: i + 1, total: spots.length });
         flyTo(s.lat, s.lng, 6);
         await sleep(1800);
       }
       tourRef.current = false;
       setPlaying(false);
-      setTourSpot(null);
+      setTour(null);
       activeHandle()?.fitToTrip(spots);
     },
     [flyTo, activeHandle],
@@ -407,18 +507,20 @@ export default function App() {
 
   const openShare = useCallback(() => {
     if (trip.length === 0) return;
+    if (coachStepRef.current === 2) setCoachStep(-1);
     setShareOpen(true);
   }, [trip.length]);
 
   const stopTour = useCallback(() => {
     tourRef.current = false;
     setPlaying(false);
-    setTourSpot(null);
+    setTour(null);
   }, []);
 
   const playTour = useCallback(
     async (use3dShort = true) => {
       if (trip.length < 2) return;
+      if (coachStepRef.current === 1) setCoachStep(2);
       setRevealOpen(false);
       tourRef.current = true;
       setPlaying(true);
@@ -440,7 +542,7 @@ export default function App() {
         if (!tourRef.current) break;
         const spot = trip[i];
         setSelectedId(spot.id);
-        setTourSpot({ spot, i: i + 1, total: trip.length });
+        setTour({ spot, i: i + 1, total: trip.length });
         if (engine === "3d")
           activeHandle()?.flyTo(spot.lat, spot.lng, {
             zoom: i > 0 ? zoomFor(legKm(trip, i)) : 10,
@@ -452,7 +554,7 @@ export default function App() {
       const completed = tourRef.current;
       tourRef.current = false;
       setPlaying(false);
-      setTourSpot(null);
+      setTour(null);
       if (completed && !isSample && trip.length >= 2) {
         activeHandle()?.fitToTrip(trip);
         setRevealOpen(true);
@@ -484,10 +586,10 @@ export default function App() {
 
   const replayJourney = useCallback(() => {
     setRevealOpen(false);
-    void playTour();
-  }, [playTour]);
+    playReel();
+  }, [playReel]);
 
-  const sharePostcard = useCallback(() => {
+  const sharePostcard = useCallback(async () => {
     const canvas = activeHandle()?.snapshot?.();
     if (canvas) {
       const info = classify(trip);
@@ -517,6 +619,7 @@ export default function App() {
         month: "long",
         day: "numeric",
       });
+      const { exportPostcard } = await import("./lib/postcard");
       const ok = exportPostcard(canvas, {
         title: info.copy,
         dateStamp,
@@ -544,6 +647,7 @@ export default function App() {
     setRevealOpen(false);
     const tid = toast.loading("Recording your journey...");
     try {
+      const { recordCanvas } = await import("./lib/recorder");
       const ok = await recordCanvas(canvas, async () => {
         await playTour(false);
       });
@@ -589,16 +693,65 @@ export default function App() {
     setLibrary((prev) => prev.filter((d) => d.id !== id));
   }, []);
 
-  const viewProps = {
-    trip,
-    selectedId,
-    onAddPin: handleAddPin,
-    onSelectPin: setSelectedId,
-  };
+  const preloadShare = useCallback(() => {
+    void import("./components/ShareDialog");
+  }, []);
+
+  const onboardChoose = useCallback((mode: "plan" | "remember") => {
+    setRememberMode(mode === "remember");
+    saveOnboarded(true);
+    setOnboardOpen(false);
+    setTrip([]);
+    setIsSample(false);
+    setSelectedId(null);
+    setCoachStep(0);
+  }, []);
+
+  const onboardSkip = useCallback(() => {
+    saveOnboarded(true);
+    setOnboardOpen(false);
+  }, []);
+
+  const pickTemplate = useCallback(
+    (t: TripTemplate) => {
+      saveOnboarded(true);
+      setOnboardOpen(false);
+      setRememberMode(false);
+      const loaded = normalizeDays(
+        t.stops.map((s) => ({ ...s, id: makeId() })),
+      );
+      setTrip(loaded);
+      setIsSample(false);
+      setSelectedId(null);
+      setCoachStep(-1);
+      window.setTimeout(() => activeHandle()?.fitToTrip(loaded), 350);
+      toast.success(`Loaded "${t.name}"`);
+    },
+    [activeHandle],
+  );
+
+  const coachSteps = isDesktop ? COACH_STEPS : COACH_STEPS_MOBILE;
+  const coachNext = useCallback(
+    () => setCoachStep((s) => (s >= coachSteps.length - 1 ? -1 : s + 1)),
+    [coachSteps.length],
+  );
+  const coachSkip = useCallback(() => setCoachStep(-1), []);
+  const replayTour = useCallback(() => setCoachStep(0), []);
+
+  const viewProps = useMemo(
+    () => ({
+      trip,
+      selectedId,
+      onAddPin: handleAddPin,
+      onSelectPin: setSelectedId,
+    }),
+    [trip, selectedId, handleAddPin],
+  );
 
   const layerStyle = (v: typeof view) => ({
     opacity: lod.opacityOf(v),
     transition: "opacity 450ms ease",
+    willChange: "opacity" as const,
     pointerEvents: (view === v ? "auto" : "none") as "auto" | "none",
   });
 
@@ -671,7 +824,7 @@ export default function App() {
               </span>
             </div>
 
-            <div className="relative min-w-0 flex-1 sm:max-w-xs">
+            <div className="relative min-w-0 flex-1 sm:max-w-xs" data-tour="add">
               <SearchBar onSelect={handleSearchSelect} />
             </div>
 
@@ -706,7 +859,10 @@ export default function App() {
                     type="button"
                     variant="secondary"
                     onClick={openShare}
+                    onPointerEnter={preloadShare}
+                    onFocus={preloadShare}
                     disabled={trip.length === 0}
+                    data-tour="share"
                     className="bg-background/90 shadow-sm backdrop-blur"
                   >
                     <Share2 className="size-4" />
@@ -723,6 +879,7 @@ export default function App() {
                     variant="secondary"
                     onClick={playing ? stopTour : playReel}
                     disabled={trip.length < 2}
+                    data-tour="play"
                     className="bg-background/90 shadow-sm backdrop-blur"
                   >
                     {playing ? (
@@ -756,10 +913,26 @@ export default function App() {
                 </TooltipTrigger>
                 <TooltipContent>See your journey reveal</TooltipContent>
               </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="icon"
+                    onClick={replayTour}
+                    aria-label="How it works"
+                    className="bg-background/90 shadow-sm backdrop-blur"
+                  >
+                    <HelpCircle className="size-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>How it works</TooltipContent>
+              </Tooltip>
             </div>
 
             <div className="ml-auto flex items-center gap-2 lg:hidden">
-              <Sheet>
+              <Sheet open={actionsOpen} onOpenChange={setActionsOpen}>
                 <SheetTrigger asChild>
                   <Button
                     variant="secondary"
@@ -769,69 +942,117 @@ export default function App() {
                     <Menu className="size-4" />
                   </Button>
                 </SheetTrigger>
-                <SheetContent side="bottom" className="p-4">
-                  <SheetHeader>
+                <SheetContent side="bottom" className="gap-3 rounded-t-2xl p-4 pb-6">
+                  <SheetHeader className="sr-only">
                     <SheetTitle>Actions</SheetTitle>
                   </SheetHeader>
-                  <div className="mt-3 flex flex-col gap-2">
-                    <div className="flex justify-center pb-1">
-                      <ViewToggle value={view} onChange={lod.selectView} />
+                  <div className="mb-3 flex flex-col gap-1.5">
+                    <p className="text-muted-foreground text-center text-xs font-medium">
+                      Map style
+                    </p>
+                    <ViewToggle
+                      value={view}
+                      onChange={lod.selectView}
+                      showLabels
+                      fullWidth
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2" data-tour="m-actions">
+                    <div className="flex flex-col gap-1">
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={rollSurprise}
+                          className={ACTION_TILE}
+                        >
+                          <Dices className="size-5" />
+                          <span>Surprise</span>
+                        </button>
+                      </SheetClose>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        Random gem
+                      </span>
                     </div>
-                    <SheetClose asChild>
-                      <Button
-                        variant="secondary"
-                        className="justify-start"
-                        onClick={rollSurprise}
-                      >
-                        <Dices className="size-4" />
-                        Take me somewhere
-                      </Button>
-                    </SheetClose>
-                    <div className="[&>button]:w-full [&>button]:justify-start">
-                      <TripLibrary
-                        docs={library}
-                        onSave={saveCurrentTrip}
-                        onOpen={openTrip}
-                        onDelete={deleteTrip}
-                      />
+                    <div className="flex flex-col gap-1">
+                      <div className="[&>button]:flex [&>button]:h-full [&>button]:w-full [&>button]:flex-col [&>button]:items-center [&>button]:justify-center [&>button]:gap-1.5 [&>button]:rounded-xl [&>button]:bg-muted/50 [&>button]:py-3.5 [&>button]:text-xs [&>button]:font-medium">
+                        <TripLibrary
+                          docs={library}
+                          onSave={saveCurrentTrip}
+                          onOpen={openTrip}
+                          onDelete={deleteTrip}
+                        />
+                      </div>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        Saved trips
+                      </span>
                     </div>
-                    <SheetClose asChild>
-                      <Button
-                        variant="secondary"
-                        className="justify-start"
-                        onClick={openShare}
-                        disabled={trip.length === 0}
-                      >
-                        <Share2 className="size-4" />
-                        Share
-                      </Button>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Button
-                        variant="secondary"
-                        className="justify-start"
-                        onClick={playing ? stopTour : playReel}
-                        disabled={trip.length < 2}
-                      >
-                        {playing ? (
-                          <Square className="size-4" />
-                        ) : (
-                          <Play className="size-4" />
-                        )}
-                        {playing ? "Stop" : "Play"}
-                      </Button>
-                    </SheetClose>
-                    <SheetClose asChild>
-                      <Button
-                        variant="secondary"
-                        className="justify-start"
-                        onClick={seeJourney}
-                        disabled={trip.length < 2}
-                      >
-                        <Sparkles className="size-4" />
-                        Journey
-                      </Button>
-                    </SheetClose>
+                    <div className="flex flex-col gap-1">
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={openShare}
+                          disabled={trip.length === 0}
+                          className={ACTION_TILE}
+                        >
+                          <Share2 className="size-5" />
+                          <span>Share</span>
+                        </button>
+                      </SheetClose>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        Link · postcard
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={playing ? stopTour : playReel}
+                          disabled={trip.length < 2}
+                          className={ACTION_TILE}
+                        >
+                          {playing ? (
+                            <Square className="size-5" />
+                          ) : (
+                            <Play className="size-5" />
+                          )}
+                          <span>{playing ? "Stop" : "Play"}</span>
+                        </button>
+                      </SheetClose>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        Fly the route
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={seeJourney}
+                          disabled={trip.length < 2}
+                          className={ACTION_TILE}
+                        >
+                          <Sparkles className="size-5" />
+                          <span>Journey</span>
+                        </button>
+                      </SheetClose>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        Cinematic recap
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <SheetClose asChild>
+                        <button
+                          type="button"
+                          onClick={replayTour}
+                          className={ACTION_TILE}
+                        >
+                          <HelpCircle className="size-5" />
+                          <span>Guide</span>
+                        </button>
+                      </SheetClose>
+                      <span className="text-muted-foreground text-center text-[10px] leading-tight">
+                        How it works
+                      </span>
+                    </div>
                   </div>
                 </SheetContent>
               </Sheet>
@@ -858,9 +1079,11 @@ export default function App() {
         </TooltipProvider>
       </div>
 
-      <aside className="bg-background/95 absolute top-16 right-3 bottom-3 z-20 hidden w-80 flex-col overflow-hidden rounded-xl border border-border shadow-2xl backdrop-blur lg:flex">
-        {tripPanel}
-      </aside>
+      {isDesktop && (
+        <aside className="bg-background/95 absolute top-16 right-3 bottom-3 z-20 hidden w-80 flex-col overflow-hidden rounded-xl border border-border shadow-2xl backdrop-blur lg:flex">
+          {tripPanel}
+        </aside>
+      )}
 
       <Dialog open={clearOpen} onOpenChange={setClearOpen}>
         <DialogContent>
@@ -908,13 +1131,17 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <ShareDialog
-        open={shareOpen}
-        onOpenChange={setShareOpen}
-        trip={trip}
-        getCanvas={getCanvas}
-        publishLink={publishLink}
-      />
+      {shareOpen && (
+        <Suspense fallback={null}>
+          <ShareDialog
+            open={shareOpen}
+            onOpenChange={setShareOpen}
+            trip={trip}
+            getCanvas={getCanvas}
+            publishLink={publishLink}
+          />
+        </Suspense>
+      )}
 
       <Dialog open={reelPromptOpen} onOpenChange={setReelPromptOpen}>
         <DialogContent>
@@ -949,7 +1176,24 @@ export default function App() {
         </DialogContent>
       </Dialog>
 
-      <ReelCaption tour={tourSpot} />
+      <OnboardingWelcome
+        open={onboardOpen}
+        onChoose={onboardChoose}
+        onSkip={onboardSkip}
+        cityHint={cityHint}
+        onPickTemplate={pickTemplate}
+      />
+
+      {coachStep >= 0 && !onboardOpen && (
+        <Coachmarks
+          steps={coachSteps}
+          index={coachStep}
+          onNext={coachNext}
+          onSkip={coachSkip}
+        />
+      )}
+
+      <ReelCaption />
 
       {revealOpen && (
         <JourneyReveal
