@@ -41,7 +41,7 @@ npm install
 npm run dev      # start the dev server
 npm run build    # type-check (tsc -b) and build for production
 npm run preview  # preview the production build
-```.
+```
 
 ## Deploying
 
